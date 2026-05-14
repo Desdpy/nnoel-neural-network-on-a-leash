@@ -1,7 +1,7 @@
 # Nnoel - Neural network on a leash
 A helper where every action taken by the AI is tightly controlled by permissions. Everything that happens in the background will be seen by the user.
 
-![MEME](HOAL.png)
+![MEME](Nnoel.png)
 
 ## Goals:
 - Similar goal as OpenClaw but less hands-off and more controlled active co-sessions with user. Doesnt take over full tasks but helps getting through them quicker
