@@ -1,4 +1,4 @@
-# N.n.o.a.L. - Neural Network on a Leash
+# N.n.o.a.l. - Neural Network on a Leash
 A helper where every action taken by the AI is tightly controlled by permissions. Everything that happens in the background will be seen by the user.
 
 ![MEME](HOAL.png)
