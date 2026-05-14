@@ -4,8 +4,14 @@ A helper where every action taken by the AI is tightly controlled by permissions
 ![MEME](HOAL.png)
 
 ## Goals:
-- Similar goal as OpenClaw but less handsoff and more controlled
+- Similar goal as OpenClaw but less hands-off and more controlled active co-sessions with user. Doesnt take over full tasks but helps getting through them quicker
 - Helping with e-mails, messanges, appointments etc.
+- Every single step executed by the AI will be visible on the UI
+- Local first
+- Make it well usable with smaller models (~9B) with less powerful PCs (~12Gb VRAM)
+- Full static (not with prompting) permission system separate of LLM for all steps/commands/interactions with outside systems 
+- Retry current message/command (conversation branches)
+- Being able to manually edit suggested commands/step by the LLM
 - 
 
 ## References
@@ -13,3 +19,4 @@ A helper where every action taken by the AI is tightly controlled by permissions
   - [AIVoiceChat](https://github.com/KoljaB/AIVoiceChat)
   - [RealtimeVoiceChat](https://github.com/KoljaB/RealtimeVoiceChat)
   - [LocalAIVoiceChat](https://github.com/KoljaB/LocalAIVoiceChat)
+- Inspired by [OpenClaw](https://github.com/openclaw/openclaw)
