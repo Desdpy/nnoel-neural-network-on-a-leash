@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: "Geist Variable", sans-serif;
+
+    /* Custom color names for Tailwind utilities */
+    --color-surface-base: var(--background);
+    --color-surface-raised: var(--card);
+    --color-surface-deep: var(--secondary);
+    --color-text-base: var(--foreground);
+    --color-accent: var(--primary);
+    --color-border: var(--border);
+    --color-muted-fg: var(--muted-foreground);
+    --color-success: #4ade80;
+    --color-warning: #fb923c;
+}
+
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --radius: 0.625rem;
+}
+
+.dark {
+    --background: #1a1a2e;
+    --foreground: #e4e4e4;
+    --card: #16213e;
+    --card-foreground: #e4e4e4;
+    --popover: #16213e;
+    --popover-foreground: #e4e4e4;
+    --primary: #e94560;
+    --primary-foreground: #ffffff;
+    --secondary: #0f3460;
+    --secondary-foreground: #e4e4e4;
+    --muted: #16213e;
+    --muted-foreground: #a0a0a0;
+    --accent: #0f3460;
+    --accent-foreground: #e4e4e4;
+    --destructive: #ef4444;
+    --border: rgba(255, 255, 255, 0.1);
+    --input: #0f3460;
+    --ring: #e94560;
+}
+
+@layer base {
+    * {
+        border-color: var(--border);
+        outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
+    }
+    body {
+        background-color: var(--background);
+        color: var(--foreground);
+    }
+    html {
+        font-family: var(--font-sans);
+    }
+}
