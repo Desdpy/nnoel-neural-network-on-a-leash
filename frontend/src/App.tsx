@@ -1,7 +1,17 @@
 import { DockviewReact } from "dockview";
-import type { DockviewReadyEvent, DockviewWillDropEvent } from "dockview";
+import type {
+  DockviewReadyEvent,
+  DockviewWillDropEvent,
+  GetTabContextMenuItemsParams,
+  BuiltInContextMenuItem,
+} from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
 import { HelloPanel } from "./components/HelloPanel";
+
+const components = {
+  chatPanel: ChatPanel,
+  helloPanel: HelloPanel
+};
 
 function App() {
   const onReady = (event: DockviewReadyEvent) => {
@@ -25,21 +35,25 @@ function App() {
     }
   };
 
+  const getTabContextMenuItems = (
+    params: GetTabContextMenuItemsParams,
+  ): (BuiltInContextMenuItem | { label: string; action: () => void })[] => {
+    return [
+      { label: "Float", action: () => params.api.addFloatingGroup(params.panel) },
+      "separator",
+      "close",
+    ];
+  };
+
   return (
-    <div
+    <DockviewReact
       className="dockview-theme-dark"
-      style={{
-        height: "calc(100vh - 16px)",
-        width: "calc(100vw - 16px)",
-        margin: "8px",
-      }}
-    >
-      <DockviewReact
-        components={{ chatPanel: ChatPanel, helloPanel: HelloPanel }}
-        onReady={onReady}
-        onWillDrop={onWillDrop}
-      />
-    </div>
+      components={components}
+      onReady={onReady}
+      onWillDrop={onWillDrop}
+      getTabContextMenuItems={getTabContextMenuItems}
+      singleTabMode="fullwidth"
+    />
   );
 }
 
