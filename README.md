@@ -1,5 +1,5 @@
 # Nnoel - Neural network on a leash
-An AI assitant where every action taken by the AI is tightly controlled by permissions. Everything that happens in the background will be seen by the user.
+A local-first AI assistant that works with small LLMs, whose every action is tightly controlled and audited by you. Everything that happens in the background will be visualized in the web UI.
 
 ![MEME](Nnoel.jpg)
 
