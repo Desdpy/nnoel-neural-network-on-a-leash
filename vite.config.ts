@@ -14,5 +14,14 @@ export default defineConfig({
   build: {
     outDir: "../static",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          dockview: ["dockview"],
+        },
+      },
+    },
   },
 });
