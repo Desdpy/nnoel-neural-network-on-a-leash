@@ -63,6 +63,11 @@
     --ring: #e94560;
 }
 
+.dockview-theme-abyss-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
+    text-align: center;
+    margin-right: 0;
+}
+
 @layer base {
     * {
         border-color: var(--border);

@@ -15,32 +15,8 @@ export function ChatPanel(_props: IDockviewPanelProps) {
     handleSubmit,
   } = useChat();
 
-  const statusColor =
-    status === "connected"
-      ? "text-success"
-      : status === "responding"
-        ? "text-warning"
-        : "text-destructive";
-
-  const statusTitle =
-    status === "connected"
-      ? "Connected"
-      : status === "responding"
-        ? "Typing…"
-        : "Disconnected";
-
   return (
     <div className="flex flex-col h-full bg-surface-base text-text-base">
-      <div className="flex justify-between items-center px-4 py-3 bg-surface-raised border-b border-border shrink-0">
-        <h1 className="text-lg font-semibold text-accent">Nnoel</h1>
-        <div
-          className={`text-base cursor-default ${statusColor}`}
-          title={statusTitle}
-        >
-          ●
-        </div>
-      </div>
-
       <div className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3">
         {messages.map((msg, index) => (
           <div

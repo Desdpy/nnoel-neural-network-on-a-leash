@@ -1,5 +1,6 @@
-import { DockviewReact } from "dockview";
+import { themeAbyssSpaced, DockviewReact } from "dockview";
 import type {
+  DockviewTheme,
   DockviewReadyEvent,
   DockviewWillDropEvent,
   GetTabContextMenuItemsParams,
@@ -7,6 +8,11 @@ import type {
 } from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
 import { HelloPanel } from "./components/HelloPanel";
+
+const theme: DockviewTheme = {
+  ...themeAbyssSpaced,
+  // gap: 8,
+};
 
 const components = {
   chatPanel: ChatPanel,
@@ -16,16 +22,16 @@ const components = {
 function App() {
   const onReady = (event: DockviewReadyEvent) => {
     event.api.addPanel({
-      id: "chat-main",
+      id: "chat",
       component: "chatPanel",
-      title: "Nnoel Chat",
+      title: "Chat",
     });
 
     event.api.addPanel({
-      id: "hello-panel",
+      id: "hello",
       component: "helloPanel",
       title: "Hello",
-      position: { direction: "right", referencePanel: "chat-main" },
+      position: { direction: "right", referencePanel: "chat" },
     });
   };
 
@@ -47,7 +53,7 @@ function App() {
 
   return (
     <DockviewReact
-      className="dockview-theme-dark"
+      theme={theme}
       components={components}
       onReady={onReady}
       onWillDrop={onWillDrop}
