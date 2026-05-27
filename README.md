@@ -1,5 +1,5 @@
 # Nnoel - Neural network on a leash
-A local-first AI assistant that works with small LLMs, whose every action is tightly controlled and audited by you. Everything that happens in the background will be visualized in the web UI.
+A local-first AI assistant that works with small LLMs, whose every action is tightly controlled and audited by you. Everything the AI does in the background will be visualized in the web UI.
 
 ![MEME](Nnoel.jpg)
 
