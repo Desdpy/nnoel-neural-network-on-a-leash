@@ -7,7 +7,7 @@ import type {
   BuiltInContextMenuItem,
 } from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
-import { HelloPanel } from "./components/HelloPanel";
+import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
 
 const theme: DockviewTheme = {
   ...themeGithubDarkSpaced,
@@ -16,23 +16,30 @@ const theme: DockviewTheme = {
 
 const components = {
   chatPanel: ChatPanel,
-  helloPanel: HelloPanel
+  agentAvatarPanel: AgentAvatarPanel
 };
 
 function App() {
   const onReady = (event: DockviewReadyEvent) => {
-    event.api.addPanel({
+    const api = event.api;
+
+    api.addPanel({
       id: "chat",
       component: "chatPanel",
       title: "Chat",
     });
 
-    event.api.addPanel({
-      id: "hello",
-      component: "helloPanel",
-      title: "Hello",
+    api.addPanel({
+      id: "agent-avatar",
+      component: "agentAvatarPanel",
+      title: "Agent",
       position: { direction: "right", referencePanel: "chat" },
     });
+
+    fetch("/config")
+      .then((res) => res.json())
+      .then((data) => api.getPanel("agent-avatar")?.setTitle(data.agent.name))
+      .catch(() => {});
   };
 
   const onWillDrop = (event: DockviewWillDropEvent) => {

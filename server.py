@@ -10,7 +10,7 @@ from pathlib import Path
 
 import requests
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 try:
@@ -48,10 +48,23 @@ def _llama_headers() -> dict:
 
 app = FastAPI(docs_url="/docs", redoc_url="/redoc")
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
 
 # ── Routes ─────────────────────────────────────────
+
+
+@app.get("/config")
+def get_config():
+    """Return agent configuration for the frontend."""
+    return {"agent": {"name": config.get("agent", {}).get("name", "Agent")}}
+
+
+@app.get("/agent-image")
+def agent_image():
+    """Serve the agent's avatar image."""
+    img = Path(__file__).parent / "frontend" / "src" / "assets" / "Nnoel-temp.png"
+    if not img.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(img, media_type="image/png")
 
 
 @app.get("/ping")
@@ -129,6 +142,9 @@ def chat(messages: list[dict] = Body(..., embed=True)):
                 "Make sure it is running at the configured URL."
             ),
         )
+
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 
 # ── Main ───────────────────────────────────────────
