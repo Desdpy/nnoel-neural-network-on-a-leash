@@ -1,10 +1,9 @@
 from pathlib import Path
 
 import requests
+from config import AGENT_NAME, LLAMA_API, LLAMA_URL
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
-
-from config import AGENT_NAME, LLAMA_API, LLAMA_URL
 from llama import _llama_headers, iter_sse_tokens
 
 router = APIRouter()

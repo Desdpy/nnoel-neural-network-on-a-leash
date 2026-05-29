@@ -5,10 +5,9 @@ Nnoel — Lightweight web UI for a llama.cpp server.
 
 from pathlib import Path
 
+from config import HOST, LLAMA_URL, PORT
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-
-from config import HOST, PORT, LLAMA_URL
 from routes import router
 
 app = FastAPI(docs_url="/docs", redoc_url="/redoc")
