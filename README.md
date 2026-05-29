@@ -36,7 +36,7 @@ A local-first AI assistant that works with small LLMs, whose every action is tig
 
 ### 1. Configure
 
-Edit `config.toml` to point to your llama.cpp server:
+Edit `backend/config.toml` to point to your llama.cpp server:
 
 ```toml
 [llama]
@@ -50,38 +50,28 @@ port = 5000
 ### 2. Install backend
 
 ```bash
-python3 -m venv .venv
+cd backend && python3 -m venv .venv
 source .venv/bin/activate
-```
-
-### 3. Upgrade Pip
-
-```bash
 pip install --upgrade pip
-```
-
-### 4. Install needed packages
-
-```bash
 pip install -r requirements.txt
 ```
 
 ### 5. Install frontend
 
 ```bash
-npm install
+cd frontend && npm install
 ```
 
 ### 6. Build frontend
 
 ```bash
-npm run build
+cd frontend && npm run build
 ```
 
-### 6. Start
+### 7. Start
 
 ```bash
-python server.py
+cd backend && python server.py
 ```
 
 Open the web UI at `http://{host}:{port}` (see `config.toml`).

@@ -5,14 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [tailwindcss(), react()],
-  root: "frontend",
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./frontend/src"),
+      "@": path.resolve(__dirname, "./src"),
     },
   },
   build: {
-    outDir: "../static",
+    outDir: "dist",
     emptyOutDir: true,
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
