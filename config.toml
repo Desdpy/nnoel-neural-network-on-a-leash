@@ -5,3 +5,6 @@ port = 5000
 [llama]
 url = "http://localhost:11434"
 api_key = "qwen3627b"
+
+[agent]
+name = "Nnoel

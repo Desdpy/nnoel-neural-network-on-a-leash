@@ -1,4 +1,4 @@
-import { themeAbyssSpaced, DockviewReact } from "dockview";
+import { DockviewReact, themeGithubDarkSpaced } from "dockview";
 import type {
   DockviewTheme,
   DockviewReadyEvent,
@@ -10,7 +10,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { HelloPanel } from "./components/HelloPanel";
 
 const theme: DockviewTheme = {
-  ...themeAbyssSpaced,
+  ...themeGithubDarkSpaced,
   // gap: 8,
 };
 

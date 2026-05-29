@@ -43,27 +43,27 @@
 }
 
 .dark {
-    --background: #1a1a2e;
-    --foreground: #e4e4e4;
-    --card: #16213e;
-    --card-foreground: #e4e4e4;
-    --popover: #16213e;
-    --popover-foreground: #e4e4e4;
-    --primary: #e94560;
-    --primary-foreground: #ffffff;
-    --secondary: #0f3460;
-    --secondary-foreground: #e4e4e4;
-    --muted: #16213e;
-    --muted-foreground: #a0a0a0;
-    --accent: #0f3460;
-    --accent-foreground: #e4e4e4;
+    --background: #161b22;
+    --foreground: #e6edf3;
+    --card: #21262d;
+    --card-foreground: #e6edf3;
+    --popover: #21262d;
+    --popover-foreground: #e6edf3;
+    --primary: #58a6ff;
+    --primary-foreground: #0d1117;
+    --secondary: #30363d;
+    --secondary-foreground: #e6edf3;
+    --muted: #161b22;
+    --muted-foreground: #8b949e;
+    --accent: #58a6ff;
+    --accent-foreground: #0d1117;
     --destructive: #ef4444;
-    --border: rgba(255, 255, 255, 0.1);
-    --input: #0f3460;
-    --ring: #e94560;
+    --border: #30363d;
+    --input: #21262d;
+    --ring: #58a6ff;
 }
 
-.dockview-theme-abyss-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
+.dockview-theme-github-dark-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
     text-align: center;
     margin-right: 0;
 }
