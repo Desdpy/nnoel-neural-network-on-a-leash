@@ -1,9 +1,9 @@
 from pathlib import Path
 
 try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
+    import tomllib              # Python 3.11+
+except ImportError:             # This is needed if Python 3.10 or older is used
+    import tomli as tomllib     # type: ignore[import-unresolved]
 
 CONFIG_PATH = Path(__file__).parent / "config.toml"
 

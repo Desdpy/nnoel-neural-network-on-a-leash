@@ -73,6 +73,10 @@ cd frontend && npm run build
 ```bash
 cd backend && python server.py
 ```
+or
+```bash
+./start.sh
+```
 
 Open the web UI at `http://{host}:{port}` (see `config.toml`).
 
