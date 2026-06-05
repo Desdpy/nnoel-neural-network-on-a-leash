@@ -11,6 +11,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Compute image tag
+        id: meta
+        run: echo "tag=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]'):latest" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -20,4 +23,4 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ghcr.io/${{ lower(github.repository) }}:latest
+          tags: ${{ steps.meta.outputs.tag }}
