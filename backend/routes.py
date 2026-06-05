@@ -16,7 +16,7 @@ def get_config():
 
 @router.get("/agent-image")
 def agent_image():
-    img = Path(__file__).parent / "assets" / "Nnoel-temp.png"
+    img = Path(__file__).parent / "assets" / "Nnoel.png"
     if not img.exists():
         raise HTTPException(status_code=404)
     return FileResponse(img, media_type="image/png")

@@ -1,5 +1,5 @@
 # Nnoel - Neural network on a leash
-A local-first AI assistant that works with small LLMs, whose every action is tightly controlled and audited by you. Everything the AI does in the background will be visualized in the web UI.
+A local-first AI assistant that works on CPU only systems, whose every action is tightly controlled and audited by you. Everything the AI does in the background will be visualized in the web UI.
 
 ![MEME](Nnoel.jpg)
 
@@ -8,7 +8,7 @@ A local-first AI assistant that works with small LLMs, whose every action is tig
 - Helping with e-mails, messages, appointments etc.
 - Every single step executed by the AI will be visible on the UI
 - Local first
-- Make it well usable with smaller models (~9B) with less powerful PCs (<12Gb VRAM)
+- **CPU first,** make it well usable with smaller models (~1B) on less powerful PCs/servers that don't have a GPU
 - Full static (not with prompting) permission system separate of LLM for all steps/commands/interactions with outside systems 
 - Retry current message/command (conversation branches)
 - Being able to manually edit suggested commands/step by the LLM

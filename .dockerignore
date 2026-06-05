@@ -1,0 +1,12 @@
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.env
+.git/
+.gitignore
+*.md
+.npmrc
+.zed/
