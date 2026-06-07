@@ -10,3 +10,7 @@ __pycache__/
 *.md
 .npmrc
 .zed/
+models/
+start.sh
+docker-compose.yml
+docker-compose.prod.yml

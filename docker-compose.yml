@@ -1,69 +1,13 @@
 services:
-  # Downloads the model if missing, then exits
-  download-model:
-    image: alpine:latest
-    restart: "no"
-    volumes:
-      - models_data:/models
-    environment:
-      MODEL_URL: "${NNOEL_MODEL_URL:-https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf}"
-      MODEL_FILE: "${NNOEL_MODEL_FILE:-Qwen3.5-2B-Q4_K_M.gguf}"
-      MMPROJ_URL: "${NNOEL_MMPROJ_URL:-https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf}"
-      MMPROJ_FILE: "${NNOEL_MMPROJ_FILE:-mmproj-BF16.gguf}"
-    command:
-      - sh
-      - -c
-      - |
-        dl() { local url="$$1" file="/models/$$2"; if [ ! -f "$$file" ]; then echo "Downloading $$2 ..."; curl -#L -o "$$file" "$$url"; else echo "✓ $$2 already exists"; fi; }
-        set -e
-        apk add --no-cache curl >/dev/null 2>&1
-        dl "$${MODEL_URL:?MODEL_URL not set}" "$${MODEL_FILE:-$$(basename "$${MODEL_URL}")}"
-        dl "$${MMPROJ_URL:?MMPROJ_URL not set}" "$${MMPROJ_FILE:-$$(basename "$${MMPROJ_URL}")}"
-        echo "✓ All downloads complete"
-
-  # Nnoel web UI (pulled from GHCR)
   nnoel:
     image: ghcr.io/desdpy/nnoel-neural-network-on-a-leash:latest
     ports:
       - "${NNOEL_PORT:-5000}:5000"
     environment:
-      NNOEL_HOST: "0.0.0.0"
-      NNOEL_PORT: "5000"
-      NNOEL_LLAMA_URL: "http://qwen3.5-2b:8080"
-      NNOEL_LLAMA_API_KEY: "key"
-      NNOEL_AGENT_NAME: "Nnoel"
-    depends_on:
-      qwen3.5-2b:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # llama.cpp server running main model
-  qwen3.5-2b:
-    image: ghcr.io/ggml-org/llama.cpp:server
-    depends_on:
-      download-model:
-        condition: service_completed_successfully
-    command: >
-      --model /models/Qwen3.5-2B-Q4_K_M.gguf
-      --mmproj /models/mmproj-BF16.gguf
-      --ctx-size 4096
-      --chat-template-kwargs '{"enable_thinking":false}'
-      --temperature 1.0
-      --top-p 0.95
-      --top-k 20
-      --min-p 0.0
-      --presence-penalty 1.5
-      --repeat-penalty 1.0
-    ports:
-      - "${LLAMACPP_PORT:-11435}:8080"
+      # Needed so last log doesn't get stuck in buffer
+      PYTHONUNBUFFERED: "1"
     volumes:
-      - models_data:/models:ro
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
+      - models_data:/app/models
     restart: unless-stopped
 
 volumes:

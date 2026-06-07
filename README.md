@@ -36,6 +36,11 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 
 ### 1. Configure
 
+Requirements:
+```bash
+sudo zypper install gcc-c++ cmake
+```
+
 Edit `backend/config.toml` to point to your llama.cpp server:
 
 ```toml
@@ -76,6 +81,10 @@ cd backend && python server.py
 or
 ```bash
 ./start.sh
+```
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
 ```
 
 Open the web UI at `http://{host}:{port}` (see `config.toml`).
