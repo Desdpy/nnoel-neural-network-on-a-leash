@@ -17,6 +17,13 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 - RAG for longterm memory
 - STT & TTS first, an assistant that you can speak with
 - instead of connecting it to other messenger apps this will have a separate web ui to make everything graphically possible
+- Uses MCP internally
+
+## Features that are **NOT** in scope:
+- **Be a coding agent** - I doubt that it is possible to do this with <2b LLM models and there is already the project [SmallCode](https://github.com/Doorman11991/smallcode) out there which works with small models (>8b)
+- **Create skills on her own** - The small LLM models are not smart enough to do this effectively and this would go against the idea of the project (overview over everything)
+- **Adjust her behavior in any meaningful way on her own** - Same as above
+- **Custom skills/plugins** - The small LLM models will be specifically finetuned to be able to do specified tasks in the program that work together with each other which makes it hard to add functions those models are not finetuned on, or the models have to be replaced with bigger ones or retrained for each specific plugin and replaced which is out of this scope
 
 ## Stack
 
@@ -30,6 +37,7 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 
 ### Backend
 - Python
+- llama-cpp-python
 - FastAPI
 
 ## Setup
