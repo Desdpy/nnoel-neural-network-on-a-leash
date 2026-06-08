@@ -1,7 +1,9 @@
 # Nnoel - Neural network on a leash
 A local-first AI assistant that works on CPU only systems, whose every action is tightly controlled and audited by you. Everything the AI does in the background will be visualized in the web UI.
 
-![MEME](Nnoel.jpg)
+<div align="center">
+  <img src="Nnoel.jpg" width="500" alt="MEME">
+</div>
 
 ## Goals:
 - Similar goal as OpenClaw but less hands-off and more controlled active co-sessions with user. Doesn't take over full tasks but helps getting through them quicker
