@@ -1,8 +1,9 @@
-import { Send } from "lucide-react";
+import { Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChat } from "../useChat";
 import type { IDockviewPanelProps } from "dockview";
+import ReactMarkdown from "react-markdown";
 
 export function ChatPanel(_props: IDockviewPanelProps) {
   const {
@@ -10,14 +11,18 @@ export function ChatPanel(_props: IDockviewPanelProps) {
     inputValue,
     status,
     messagesEndRef,
+    messagesContainerRef,
     textareaRef,
     handleInputChange,
+    handleKeyDown,
+    handleStop,
     handleSubmit,
   } = useChat();
 
   return (
     <div className="flex flex-col h-full bg-surface-base text-text-base">
-      <div className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3">
+      {/* Message history */}
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3 scrollbar-thin [scrollbar-color:var(--border)_transparent]">
         {messages.map((msg, index) => (
           <div
             key={index}
@@ -27,7 +32,20 @@ export function ChatPanel(_props: IDockviewPanelProps) {
                 : "self-start bg-surface-raised rounded-bl-sm"
             }`}
           >
-            {msg.content}
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => <span>{children}</span>,
+                ul: ({ children }) => (
+                  <ul className="list-disc pl-5 my-1">{children}</ul>
+                ),
+                ol: ({ children }) => (
+                  <ol className="list-decimal pl-5 my-1">{children}</ol>
+                ),
+                li: ({ children }) => <li className="my-0.5">{children}</li>,
+              }}
+            >
+              {msg.content}
+            </ReactMarkdown>
           </div>
         ))}
 
@@ -42,30 +60,47 @@ export function ChatPanel(_props: IDockviewPanelProps) {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Textarea + Send button */}
       <footer className="px-4 py-3 bg-surface-raised border-t border-border shrink-0">
-        <form className="flex gap-3 items-end" onSubmit={handleSubmit}>
+        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
           <Textarea
             ref={textareaRef}
-            className="flex-1 resize-none max-h-35 text-base"
+            className="flex-1 resize-none min-h-10 max-h-35 scrollbar-thin [scrollbar-color:var(--border)_transparent] focus-visible:ring-border/80"
             placeholder="Message Nnoel…"
             rows={1}
             value={inputValue}
             onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
             disabled={status === "responding"}
             autoComplete="off"
           />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={status === "responding"}
-            aria-label="Send"
-          >
-            <Send
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Button>
+          {status === "responding" ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="destructive"
+              onClick={handleStop}
+              aria-label="Stop"
+            >
+              <Square
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              aria-label="Send"
+            >
+              <Send
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Button>
+          )}
         </form>
       </footer>
     </div>

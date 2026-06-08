@@ -6,14 +6,29 @@ export function useChat() {
   const [inputValue, setInputValue] = useState("");
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isAtBottomRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const threshold = 50;
+      isAtBottomRef.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    };
+    container.addEventListener("scroll", onScroll);
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (isAtBottomRef.current) scrollToBottom();
   }, [messages, scrollToBottom]);
 
   useEffect(() => {
@@ -32,12 +47,22 @@ export function useChat() {
 
   useEffect(() => {
     textareaRef.current?.focus();
-  }, []);
+  }, [status]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputValue(e.target.value);
-    e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+    e.target.scrollTop = e.target.scrollHeight;
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      e.currentTarget.form?.requestSubmit();
+    }
+  };
+
+  const handleStop = () => {
+    abortControllerRef.current?.abort();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,17 +77,15 @@ export function useChat() {
     setInputValue("");
     setStatus("responding");
 
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-
     let fullReply = "";
+    abortControllerRef.current = new AbortController();
 
     try {
       const response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: conversationHistory }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
@@ -88,12 +111,14 @@ export function useChat() {
         });
       }
     } catch (err) {
+      if (abortControllerRef.current?.signal.aborted) return;
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: `Error: ${errorMessage}` },
       ]);
     } finally {
+      abortControllerRef.current = null;
       setStatus("connected");
     }
   };
@@ -103,8 +128,11 @@ export function useChat() {
     inputValue,
     status,
     messagesEndRef,
+    messagesContainerRef,
     textareaRef,
     handleInputChange,
+    handleKeyDown,
+    handleStop,
     handleSubmit,
   };
 }

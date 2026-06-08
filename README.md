@@ -88,7 +88,7 @@ cd backend && python server.py
 ```
 or
 ```bash
-./start.sh
+./startProd.sh
 ```
 
 ```bash
