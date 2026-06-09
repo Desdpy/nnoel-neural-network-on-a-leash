@@ -10,7 +10,7 @@ top_k = 20
 min_p = 0.0
 presence_penalty = 1.5
 repeat_penalty = 1.0
-chat_template_kwargs = {enable_thinking = false}
+chat_template_kwargs = {enable_thinking = false}  # enables/disable thinking for Qwen models
 
 [agent]
 name = "Nnoel"
