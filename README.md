@@ -10,7 +10,7 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 - Helping with e-mails, messages, appointments etc.
 - Every single step executed by the AI will be visible on the UI
 - Local first
-- **CPU first,** make it well usable with smaller models (<2B) on less powerful PCs/servers that don't have a GPU
+- **CPU first,** make it well usable with smaller models (2B) on less powerful PCs/servers that don't have a GPU
 - Full static (not with prompting) permission system separate of LLM for all steps/commands/interactions with outside systems 
 - Retry current message/command (conversation branches)
 - Being able to manually edit suggested commands/step by the LLM
@@ -22,7 +22,7 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 - Uses MCP internally
 
 ## Features that are **NOT** in scope:
-- **Be a coding agent** - I doubt that it is possible to do this with <2b LLM models and there is already a great coding agent out there called [SmallCode](https://github.com/Doorman11991/smallcode) which was build with small models (>8b) in mind
+- **Be a coding agent** - I doubt that it is possible to do this with 2b LLM models and there is already a great coding agent out there called [SmallCode](https://github.com/Doorman11991/smallcode) which was build with small models (>8b) in mind
 - **Create skills on her own** - The small LLM models are not smart enough to do this effectively and this would go against the idea of the project (overview over everything)
 - **Adjust her behavior in any meaningful way on her own** - Same as above
 - **Custom skills/plugins** - The small LLM models will be specifically finetuned to be able to do specified tasks in the program that work together with each other which makes it hard to add functions those models are not finetuned on, or the models have to be replaced with bigger ones or retrained for each specific plugin and replaced which is out of this scope
