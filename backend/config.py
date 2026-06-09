@@ -22,11 +22,11 @@ LLM_MMPROJ_PATH = str(BASE_DIR / "models" / "main-mmproj.gguf")
 if not os.path.exists(LLM_MMPROJ_PATH):
     LLM_MMPROJ_PATH = None
 LLM_N_CTX = int(config["llama"].get("n_ctx", 4096))
-LLM_TEMPERATURE = float(config["llama"].get("temperature", 1.0))
-LLM_TOP_P = float(config["llama"].get("top_p", 0.95))
-LLM_TOP_K = int(config["llama"].get("top_k", 20))
-LLM_MIN_P = float(config["llama"].get("min_p", 0.0))
-LLM_PRESENCE_PENALTY = float(config["llama"].get("presence_penalty", 1.5))
-LLM_REPEAT_PENALTY = float(config["llama"].get("repeat_penalty", 1.0))
+LLM_TEMPERATURE = config["llama"].get("temperature")
+LLM_TOP_P = config["llama"].get("top_p")
+LLM_TOP_K = config["llama"].get("top_k")
+LLM_MIN_P = config["llama"].get("min_p")
+LLM_PRESENCE_PENALTY = config["llama"].get("presence_penalty")
+LLM_REPEAT_PENALTY = config["llama"].get("repeat_penalty")
 
 AGENT_NAME = config.get("agent", {}).get("name", "Agent")
