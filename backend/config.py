@@ -28,5 +28,6 @@ LLM_TOP_K = config["llama"].get("top_k")
 LLM_MIN_P = config["llama"].get("min_p")
 LLM_PRESENCE_PENALTY = config["llama"].get("presence_penalty")
 LLM_REPEAT_PENALTY = config["llama"].get("repeat_penalty")
+LLM_CHAT_TEMPLATE_KWARGS = config["llama"].get("chat_template_kwargs", {})
 
 AGENT_NAME = config.get("agent", {}).get("name", "Agent")

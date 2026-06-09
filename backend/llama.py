@@ -1,6 +1,7 @@
 from typing import Any
 
 from config import (
+    LLM_CHAT_TEMPLATE_KWARGS,
     LLM_MIN_P,
     LLM_MMPROJ_PATH,
     LLM_MODEL_PATH,
@@ -12,14 +13,22 @@ from config import (
     LLM_TOP_P,
 )
 from llama_cpp import Llama
+from llama_cpp.llama_chat_format import get_chat_completion_handler
 
 _llm: Llama | None = None
+
+
+def _make_template_handler(handler: Any, extra_kwargs: dict[str, Any]) -> Any:
+    def wrapped(**kw: Any) -> Any:
+        return handler(**{**kw, **extra_kwargs})
+
+    return wrapped
 
 
 def get_llm() -> Llama:
     global _llm
     if _llm is None:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model_path": LLM_MODEL_PATH,
             "n_ctx": LLM_N_CTX,
             "verbose": True,
@@ -27,6 +36,11 @@ def get_llm() -> Llama:
         if LLM_MMPROJ_PATH:
             kwargs["mmproj"] = LLM_MMPROJ_PATH
         _llm = Llama(**kwargs)
+
+        if LLM_CHAT_TEMPLATE_KWARGS:
+            original = _llm._chat_handlers.get(_llm.chat_format) or get_chat_completion_handler(_llm.chat_format)  # type: ignore[attr-defined]
+            _llm.chat_handler = _make_template_handler(original, LLM_CHAT_TEMPLATE_KWARGS)
+
     return _llm
 
 
