@@ -35,3 +35,6 @@ Thumbs.db
 # Large model files (too big for GitHub)
 models/
 *.gguf
+
+# Per-user chat data
+data/

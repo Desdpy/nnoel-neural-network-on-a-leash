@@ -10,6 +10,7 @@ export function ChatPanel(_props: IDockviewPanelProps) {
     messages,
     inputValue,
     status,
+    loading,
     messagesEndRef,
     messagesContainerRef,
     textareaRef,
@@ -21,7 +22,11 @@ export function ChatPanel(_props: IDockviewPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-surface-base text-text-base">
-      {/* Message history */}
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center text-muted-fg">
+          Loading chat…
+        </div>
+      ) : (
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3 scrollbar-thin [scrollbar-color:var(--border)_transparent]">
         {messages.map((msg, index) => (
           <div
@@ -59,6 +64,7 @@ export function ChatPanel(_props: IDockviewPanelProps) {
 
         <div ref={messagesEndRef} />
       </div>
+      )}
 
       {/* Textarea + Send button */}
       <footer className="px-4 py-3 bg-surface-raised border-t border-border shrink-0">

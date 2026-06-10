@@ -5,11 +5,28 @@ export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
+  const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottomRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const res = await fetch("/api/chat");
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(data.messages ?? []);
+        }
+      } catch {
+        // offline — proceed empty
+      }
+      setLoading(false);
+    };
+    init();
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -47,7 +64,7 @@ export function useChat() {
 
   useEffect(() => {
     textareaRef.current?.focus();
-  }, [status]);
+  }, [status, loading]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputValue(e.target.value);
@@ -127,6 +144,7 @@ export function useChat() {
     messages,
     inputValue,
     status,
+    loading,
     messagesEndRef,
     messagesContainerRef,
     textareaRef,
