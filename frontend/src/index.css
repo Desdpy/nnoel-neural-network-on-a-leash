@@ -63,6 +63,10 @@
     --ring: #58a6ff;
 }
 
+.motion-base {
+  transform-origin: bottom;
+}
+
 .dockview-theme-github-dark-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
     text-align: center;
     margin-right: 0;
