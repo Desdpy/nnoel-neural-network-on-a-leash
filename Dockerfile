@@ -18,9 +18,9 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 
 RUN mkdir -p /app/models && \
     curl -#L -o /app/models/main.gguf \
-        "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" && \
+        "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf" && \
     curl -#L -o /app/models/main-mmproj.gguf \
-        "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf"
+        "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/mmproj-BF16.gguf"
 
 EXPOSE 5000
 
