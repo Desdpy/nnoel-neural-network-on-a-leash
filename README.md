@@ -7,7 +7,7 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 
 ## Goals:
 - Similar goal as OpenClaw but less hands-off and more controlled active co-sessions with user. Doesn't take over full tasks but helps getting through them quicker
-- Helping with e-mails, messages, appointments etc.
+- Helping with e-mails, messages, appointments etc. 
 - Every single step executed by the AI will be visible on the UI
 - Local first
 - **CPU first,** make it well usable with smaller models (2B) on less powerful PCs/servers that don't have a GPU
