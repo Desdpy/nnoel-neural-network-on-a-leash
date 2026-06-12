@@ -11,6 +11,7 @@ interface TransformValues {
 
 interface Motion extends TransformValues {
   duration: number;
+  timing?: string;
 }
 
 function toTransform(m: TransformValues) {
@@ -35,6 +36,7 @@ const BOUNCE_MOTIONS: Motion[] = [
     translateY: -4,
     rotate: 0.5,
     duration: 0.5,
+    timing: "ease-in-out",
   },
   {
     scaleX: 1,
@@ -43,6 +45,7 @@ const BOUNCE_MOTIONS: Motion[] = [
     translateY: -2,
     rotate: -0.3,
     duration: 0.4,
+    timing: "ease-in-out",
   },
   {
     scaleX: 1,
@@ -51,6 +54,7 @@ const BOUNCE_MOTIONS: Motion[] = [
     translateY: -5,
     rotate: 0.7,
     duration: 0.6,
+    timing: "ease-in-out",
   },
   {
     scaleX: 1,
@@ -59,6 +63,7 @@ const BOUNCE_MOTIONS: Motion[] = [
     translateY: -3,
     rotate: -0.4,
     duration: 0.45,
+    timing: "ease-in-out",
   },
 ];
 
@@ -70,6 +75,7 @@ const IDLE_MOTIONS: Motion[] = [
     translateY: 0,
     rotate: 0.2,
     duration: 1,
+    timing: "ease-in-out",
   },
   {
     scaleX: 1,
@@ -78,6 +84,7 @@ const IDLE_MOTIONS: Motion[] = [
     translateY: 0,
     rotate: -0.2,
     duration: 1,
+    timing: "ease-in-out",
   },
 ];
 
@@ -98,9 +105,10 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
   const restDuration = useRef(0);
   const releaseSteps = useRef(0);
   const releaseTarget = useRef<Motion>(REST);
+  const releaseInProgressRef = useRef(false);
   const [dipTransform, setDipTransform] = useState(REST_STR);
   const [dipDuration, setDipDuration] = useState(0);
-  const [dipHidden, setDipHidden] = useState(false);
+  const [dipTiming, setDipTiming] = useState("ease-in-out");
   const dipSteps = useRef(0);
   const lastTypeRef = useRef<"bounce" | "idle" | "dip">("idle");
   const repeatChanceRef = useRef(1);
@@ -129,13 +137,14 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
   }, []);
 
   const handleMouseUp = useCallback(() => {
+    releaseInProgressRef.current = true;
     setPressed(false);
     const next = pickWeighted(BOUNCE_MOTIONS);
     lastTypeRef.current = "bounce";
     repeatChanceRef.current = 1;
     releaseTarget.current = next;
     releaseSteps.current = 4;
-    setTiming("ease-in-out");
+    setTiming(next.timing ?? "ease-in-out");
     setDuration(0.08);
     setTransform(
       toTransform({
@@ -152,6 +161,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
     const next = pickNextMotion();
     restDuration.current = next.duration;
     setDuration(next.duration);
+    setTiming(next.timing ?? "ease-in-out");
     setTransform(toTransform(next));
     setAtRest(false);
   }, []);
@@ -178,7 +188,8 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
     const h = el?.clientHeight ?? window.innerHeight;
     const w = el?.clientWidth ?? window.innerWidth;
     off.current = { x: w, y: h };
-    setDipDuration(0.5);
+    setDipDuration(1);
+    setDipTiming("cubic-bezier(0.45, -0.2, 0.25, 1)");
     setDipTransform(
       toTransform({
         scaleX: 1,
@@ -201,57 +212,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
         off.current = { x: w, y: h };
         if (dipSteps.current === 8) {
           if (roll.current < 0.25) {
-            setDipDuration(1);
-            setDipTransform(
-              toTransform({
-                scaleX: 1,
-                scaleY: 1,
-                translateX: 0,
-                translateY: off.current.y * 2,
-                rotate: 0,
-              }),
-            );
-            setDipHidden(true);
-          } else if (roll.current < 0.5) {
-            setDipDuration(1);
-            setDipTransform(
-              toTransform({
-                scaleX: 1,
-                scaleY: 1,
-                translateX: 0,
-                translateY: -off.current.y * 2,
-                rotate: 180,
-              }),
-            );
-            setDipHidden(true);
-          } else if (roll.current < 0.75) {
-            setDipDuration(1);
-            setDipTransform(
-              toTransform({
-                scaleX: 1,
-                scaleY: 1,
-                translateX: off.current.x * 2,
-                translateY: 0,
-                rotate: 90,
-              }),
-            );
-            setDipHidden(true);
-          } else {
-            setDipDuration(1);
-            setDipTransform(
-              toTransform({
-                scaleX: 1,
-                scaleY: 1,
-                translateX: -off.current.x * 2,
-                translateY: 0,
-                rotate: -90,
-              }),
-            );
-            setDipHidden(true);
-          }
-        } else if (dipSteps.current === 7) {
-          if (roll.current < 0.25) {
-            setDipDuration(1);
+            setDipDuration(0);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -261,9 +222,8 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: 0,
               }),
             );
-            setDipHidden(false);
           } else if (roll.current < 0.5) {
-            setDipDuration(1);
+            setDipDuration(0);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -273,9 +233,9 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: 180,
               }),
             );
-            setDipHidden(false);
+            // setDipHidden(true);
           } else if (roll.current < 0.75) {
-            setDipDuration(1);
+            setDipDuration(0);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -285,9 +245,9 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: 90,
               }),
             );
-            setDipHidden(false);
+            // setDipHidden(true);
           } else {
-            setDipDuration(1);
+            setDipDuration(0);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -297,64 +257,11 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: -90,
               }),
             );
-            setDipHidden(false);
+            // setDipHidden(true);
           }
-        } else if (dipSteps.current === 6) {
+        } else if (dipSteps.current === 7) {
           if (roll.current < 0.25) {
-            setDipDuration(0.4);
-            setDipTransform(
-              toTransform({
-                scaleX: 1.8,
-                scaleY: 1.8,
-                translateX: 0,
-                translateY: off.current.y * 0.3,
-                rotate: 0,
-              }),
-            );
-            setDipHidden(false);
-          } else if (roll.current < 0.5) {
-            setDipDuration(0.4);
-            setDipTransform(
-              toTransform({
-                scaleX: 1.8,
-                scaleY: 1.8,
-                translateX: 0,
-                translateY: -off.current.y * 0.3,
-                rotate: 180,
-              }),
-            );
-            setDipHidden(false);
-          } else if (roll.current < 0.75) {
-            setDipDuration(0.4);
-            setDipTransform(
-              toTransform({
-                scaleX: 1.8,
-                scaleY: 1.8,
-                translateX: off.current.x * 0.3,
-                translateY: 0,
-                rotate: -70,
-              }),
-            );
-            setDipHidden(false);
-          } else {
-            setDipDuration(0.4);
-            setDipTransform(
-              toTransform({
-                scaleX: 1.8,
-                scaleY: 1.8,
-                translateX: -off.current.x * 0.3,
-                translateY: 0,
-                rotate: 70,
-              }),
-            );
-            setDipHidden(false);
-          }
-        } else if (dipSteps.current === 5) {
-          setDipDuration(10);
-          setDipHidden(false);
-        } else if (dipSteps.current === 4) {
-          if (roll.current < 0.25) {
-            setDipDuration(0.4);
+            setDipDuration(2);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -364,9 +271,8 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: 0,
               }),
             );
-            setDipHidden(false);
           } else if (roll.current < 0.5) {
-            setDipDuration(0.4);
+            setDipDuration(2);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -376,9 +282,8 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: 180,
               }),
             );
-            setDipHidden(false);
           } else if (roll.current < 0.75) {
-            setDipDuration(0.4);
+            setDipDuration(2);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -388,9 +293,8 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: 90,
               }),
             );
-            setDipHidden(false);
           } else {
-            setDipDuration(0.4);
+            setDipDuration(2);
             setDipTransform(
               toTransform({
                 scaleX: 1,
@@ -400,10 +304,111 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
                 rotate: -90,
               }),
             );
-            setDipHidden(false);
+          }
+        } else if (dipSteps.current === 6) {
+          if (roll.current < 0.25) {
+            setDipDuration(1);
+            setDipTiming("cubic-bezier(0.45, 0, 0.25, 1.2)");
+            setDipTransform(
+              toTransform({
+                scaleX: 1.8,
+                scaleY: 1.8,
+                translateX: 0,
+                translateY: off.current.y * 0.3,
+                rotate: 0,
+              }),
+            );
+          } else if (roll.current < 0.5) {
+            setDipDuration(1);
+            setDipTiming("ease-in-out");
+            setDipTransform(
+              toTransform({
+                scaleX: 1.8,
+                scaleY: 1.8,
+                translateX: 0,
+                translateY: -off.current.y * 0.3,
+                rotate: 180,
+              }),
+            );
+          } else if (roll.current < 0.75) {
+            setDipDuration(1);
+            setDipTiming("ease-in-out");
+            setDipTransform(
+              toTransform({
+                scaleX: 1.8,
+                scaleY: 1.8,
+                translateX: off.current.x * 0.3,
+                translateY: 0,
+                rotate: -70,
+              }),
+            );
+          } else {
+            setDipDuration(1);
+            setDipTiming("ease-in-out");
+            setDipTransform(
+              toTransform({
+                scaleX: 1.8,
+                scaleY: 1.8,
+                translateX: -off.current.x * 0.3,
+                translateY: 0,
+                rotate: 70,
+              }),
+            );
+          }
+        } else if (dipSteps.current === 5) {
+          setDipDuration(10);
+        } else if (dipSteps.current === 4) {
+          if (roll.current < 0.25) {
+            setDipDuration(1);
+            setDipTiming("cubic-bezier(0.45, -0.2, 0.25, 1)");
+            setDipTransform(
+              toTransform({
+                scaleX: 1,
+                scaleY: 1,
+                translateX: 0,
+                translateY: off.current.y * 2,
+                rotate: 0,
+              }),
+            );
+          } else if (roll.current < 0.5) {
+            setDipDuration(1);
+            setDipTiming("cubic-bezier(0.45, -0.2, 0.25, 1)");
+            setDipTransform(
+              toTransform({
+                scaleX: 1,
+                scaleY: 1,
+                translateX: 0,
+                translateY: -off.current.y * 2,
+                rotate: 180,
+              }),
+            );
+          } else if (roll.current < 0.75) {
+            setDipDuration(1);
+            setDipTiming("cubic-bezier(0.45, -0.2, 0.25, 1)");
+            setDipTransform(
+              toTransform({
+                scaleX: 1,
+                scaleY: 1,
+                translateX: off.current.x * 2,
+                translateY: 0,
+                rotate: 90,
+              }),
+            );
+          } else {
+            setDipDuration(1);
+            setDipTiming("cubic-bezier(0.45, -0.2, 0.25, 1)");
+            setDipTransform(
+              toTransform({
+                scaleX: 1,
+                scaleY: 1,
+                translateX: -off.current.x * 2,
+                translateY: 0,
+                rotate: -90,
+              }),
+            );
           }
         } else if (dipSteps.current === 3) {
-          setDipDuration(1);
+          setDipDuration(0);
           setDipTransform(
             toTransform({
               scaleX: 1,
@@ -413,9 +418,8 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
               rotate: 0,
             }),
           );
-          setDipHidden(true);
         } else if (dipSteps.current === 2) {
-          setDipDuration(1);
+          setDipDuration(2);
           setDipTransform(
             toTransform({
               scaleX: 1,
@@ -425,14 +429,14 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
               rotate: 0,
             }),
           );
-          setDipHidden(false);
         } else if (dipSteps.current === 1) {
-          setDipDuration(0.4);
+          setDipDuration(1);
+          setDipTiming("cubic-bezier(0.45, 0, 0.25, 1.2)");
           setDipTransform(REST_STR);
-          setDipHidden(false);
         } else {
           dipSteps.current = 0;
           setDipDuration(0);
+          setDipTiming("ease-in-out");
         }
       },
       dipDuration * 1000 + 50,
@@ -459,7 +463,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
     if (restartQueued.current) return;
     restartQueued.current = true;
     const tryRestart = () => {
-      if (pressedRef.current) {
+      if (pressedRef.current || releaseInProgressRef.current) {
         restartQueued.current = false;
         return;
       }
@@ -470,6 +474,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
         repeatChanceRef.current = 1;
         restDuration.current = next.duration;
         setDuration(next.duration);
+        setTiming(next.timing ?? "ease-in-out");
         setTransform(toTransform(next));
         setAtRest(false);
       } else {
@@ -512,6 +517,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
         );
       } else {
         setDuration(t.duration);
+        setTiming(t.timing ?? "ease-in-out");
         restDuration.current = t.duration;
         setTransform(toTransform(t));
         setAtRest(false);
@@ -519,6 +525,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
       return;
     }
 
+    releaseInProgressRef.current = false;
     if (atRest) {
       if (dipSteps.current === 0 && Math.random() < 0.05) {
         startDip();
@@ -527,6 +534,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
       const next = pickNextMotion();
       restDuration.current = next.duration;
       setDuration(next.duration);
+      setTiming(next.timing ?? "ease-in-out");
       setTransform(toTransform(next));
       setAtRest(false);
     } else {
@@ -551,8 +559,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
         className="w-full h-full flex items-center justify-center"
         style={{
           transform: dipTransform,
-          transition: `transform ${dipDuration}s ease-in-out`,
-          visibility: dipHidden ? "hidden" : "visible",
+          transition: `transform ${dipDuration}s ${dipTiming}`,
         }}
       >
         <img
