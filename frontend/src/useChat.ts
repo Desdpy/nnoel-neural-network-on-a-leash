@@ -29,20 +29,21 @@ export function useChat() {
   }, []);
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, []);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     const onScroll = () => {
-      const threshold = 50;
+      const threshold = 2;
       isAtBottomRef.current =
         container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
     };
     container.addEventListener("scroll", onScroll);
     return () => container.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [loading]);
 
   useEffect(() => {
     if (isAtBottomRef.current) scrollToBottom();
