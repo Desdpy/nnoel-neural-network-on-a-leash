@@ -2,6 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { Message, ConnectionStatus } from "./types";
 
 export function useChat() {
+  // Top‑level state shared across chat features: the message list, the current
+  // textarea value, connection status, loading flag, and the refs that tie into
+  // the DOM (scroll container, textarea, and the abort controller for streaming).
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
@@ -12,6 +15,7 @@ export function useChat() {
   const isAtBottomRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Load persisted conversation history from the server on mount
   useEffect(() => {
     const init = async () => {
       try {
@@ -28,11 +32,14 @@ export function useChat() {
     init();
   }, []);
 
+  // Scroll the messages container to the very bottom
   const scrollToBottom = useCallback(() => {
     const container = messagesContainerRef.current;
     if (container) container.scrollTop = container.scrollHeight;
   }, []);
 
+  // Track whether the user has scrolled to the bottom of the message list so
+  // we can decide whether to auto‑scroll when new content arrives
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -45,10 +52,13 @@ export function useChat() {
     return () => container.removeEventListener("scroll", onScroll);
   }, [loading]);
 
+  // Auto‑scroll when new messages arrive, but only if the user is already at
+  // the bottom (don't steal scroll position while they're reading history)
   useEffect(() => {
     if (isAtBottomRef.current) scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // Ping the server to determine the current connection status
   useEffect(() => {
     const checkServer = async () => {
       try {
@@ -63,15 +73,18 @@ export function useChat() {
     checkServer();
   }, []);
 
+  // Focus the textarea once the initial load and connection check have completed
   useEffect(() => {
     textareaRef.current?.focus();
   }, [status, loading]);
 
+  // Update input state on every keystroke and keep the textarea scrolled down
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputValue(e.target.value);
     e.target.scrollTop = e.target.scrollHeight;
   };
 
+  // Treat Enter (without Shift) as a form submit shortcut inside the textarea
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -79,10 +92,13 @@ export function useChat() {
     }
   };
 
+  // Abort an in‑flight streaming response
   const handleStop = () => {
     abortControllerRef.current?.abort();
   };
 
+  // Send the user's message, then stream the assistant's reply token by token
+  // from a POST /chat endpoint, updating the message list on each chunk.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = inputValue.trim();
