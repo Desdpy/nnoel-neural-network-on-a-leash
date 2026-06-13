@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "./dockview.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -65,11 +66,6 @@
 
 .motion-base {
   transform-origin: bottom;
-}
-
-.dockview-theme-github-dark-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
-    text-align: center;
-    margin-right: 0;
 }
 
 @layer base {

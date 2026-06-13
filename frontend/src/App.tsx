@@ -8,6 +8,7 @@ import type {
 } from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
 import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
+import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 
 const theme: DockviewTheme = {
   ...themeGithubDarkSpaced,
@@ -59,14 +60,19 @@ function App() {
   };
 
   return (
-    <DockviewReact
-      theme={theme}
-      components={components}
-      onReady={onReady}
-      onWillDrop={onWillDrop}
-      getTabContextMenuItems={getTabContextMenuItems}
-      singleTabMode="fullwidth"
-    />
+    <div className="relative w-full h-full overflow-hidden">
+      <NeuralNetworkBackground />
+      <div className="relative w-full h-full" style={{ zIndex: 1 }}>
+        <DockviewReact
+          theme={theme}
+          components={components}
+          onReady={onReady}
+          onWillDrop={onWillDrop}
+          getTabContextMenuItems={getTabContextMenuItems}
+          singleTabMode="fullwidth"
+        />
+      </div>
+    </div>
   );
 }
 

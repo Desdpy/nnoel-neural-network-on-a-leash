@@ -1,0 +1,21 @@
+.dockview-theme-github-dark-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
+    text-align: center;
+    margin-right: 0;
+}
+
+.dockview-theme-github-dark-spaced,
+.dockview-theme-github-dark-spaced .dv-dockview {
+    background-color: transparent !important;
+}
+
+.dockview-theme-github-dark-spaced .dv-groupview {
+    background-color: rgba(22, 27, 34, 0.8) !important;
+}
+
+.dockview-theme-github-dark-spaced .dv-groupview .dv-content-container {
+    background-color: transparent !important;
+}
+
+.dockview-theme-github-dark-spaced .dv-groupview .dv-tabs-and-actions-container {
+    background-color: transparent !important;
+}

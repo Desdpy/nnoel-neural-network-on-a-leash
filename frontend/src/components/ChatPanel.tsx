@@ -21,7 +21,7 @@ export function ChatPanel(_props: IDockviewPanelProps) {
   } = useChat();
 
   return (
-    <div className="flex flex-col h-full bg-surface-base text-text-base">
+    <div className="flex flex-col h-full text-text-base">
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-muted-fg">
           Loading chat…
