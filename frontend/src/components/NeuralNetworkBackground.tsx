@@ -137,7 +137,17 @@ export function NeuralNetworkBackground() {
       }
     }
 
+    const FRAME_INTERVAL = 1000 / 24;
+    let lastFrameTime = 0;
+
     function draw(time: number) {
+      animationId = requestAnimationFrame(draw);
+
+      const elapsed = time - lastFrameTime;
+      if (elapsed < FRAME_INTERVAL) return;
+      lastFrameTime = time - (elapsed % FRAME_INTERVAL);
+
+      const dt = FRAME_INTERVAL / 1000;
       const t = time * 0.001;
 
       ctx!.fillStyle = "#0d1117";
@@ -154,7 +164,7 @@ export function NeuralNetworkBackground() {
 
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
-        p.orbitAngle += p.orbitSpeed * 0.016;
+        p.orbitAngle += p.orbitSpeed * dt;
         p.baseX += p.vx + Math.cos(p.orbitAngle) * p.orbitRadius * 0.01;
         p.baseY += p.vy + Math.sin(p.orbitAngle * 0.7) * p.orbitRadius * 0.01;
         if (p.baseX < 0 || p.baseX > w) p.vx *= -0.5;
@@ -163,14 +173,14 @@ export function NeuralNetworkBackground() {
         p.baseY = Math.max(0, Math.min(h, p.baseY));
         p.x = p.baseX + Math.sin(t * p.orbitSpeed * 0.5 + p.orbitAngle) * p.orbitRadius * 0.02;
         p.y = p.baseY + Math.cos(t * p.orbitSpeed * 0.3 + p.orbitAngle * 1.3) * p.orbitRadius * 0.02;
-        if (p.firing > 0) p.firing = Math.max(0, p.firing - 0.02);
+        if (p.firing > 0) p.firing = Math.max(0, p.firing - 0.5 * dt);
       }
 
       buildGrid();
 
       if (Math.random() < 0.02 && signals.length < 8) fireSignal();
       for (let i = signals.length - 1; i >= 0; i--) {
-        signals[i].progress += signals[i].speed;
+        signals[i].progress += signals[i].speed * dt * 60;
         if (signals[i].progress >= 1) signals.splice(i, 1);
       }
 
@@ -266,7 +276,6 @@ export function NeuralNetworkBackground() {
         ctx!.fill();
       }
 
-      animationId = requestAnimationFrame(draw);
     }
 
     resize();
