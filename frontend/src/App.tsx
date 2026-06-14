@@ -24,6 +24,16 @@ function App() {
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api;
 
+    api.onWillShowOverlay((event) => {
+      if (event.group?.api.location.type !== "grid") return;
+      if (event.kind === "tab") {
+        event.preventDefault();
+      }
+      if (event.kind === "content" && event.position === "center") {
+        event.preventDefault();
+      }
+    });
+
     api.addPanel({
       id: "chat",
       component: "chatPanel",
@@ -37,6 +47,55 @@ function App() {
       position: { direction: "right", referencePanel: "chat" },
     });
 
+    api.addEdgeGroup("right", {
+      id: "dock-bar",
+      initialSize: 200,
+      minimumSize: 100,
+      collapsed: true,
+      collapsedSize: 44,
+    });
+
+    const dockBar = api.getGroup("dock-bar") as {
+      element: HTMLElement;
+      api: { expand(): void; collapse(): void; isCollapsed(): boolean };
+    } | undefined;
+    if (dockBar) {
+      const viewEl = dockBar.element.closest(".dv-view") as HTMLElement | null;
+      const sashContainer = viewEl
+        ?.closest(".dv-split-view-container")
+        ?.querySelector(".dv-sash-container") as HTMLElement | null;
+
+      const toggleSlide = (expanding: boolean) => {
+        if (!viewEl || !dockBar) return;
+        viewEl.classList.add("dv-edge-sliding");
+        if (sashContainer) {
+          for (const sash of sashContainer.children) {
+            (sash as HTMLElement).style.transition = "left 0.15s ease";
+          }
+        }
+        if (expanding) {
+          dockBar.api.expand();
+        } else {
+          dockBar.api.collapse();
+        }
+        setTimeout(() => {
+          viewEl.classList.remove("dv-edge-sliding");
+          if (sashContainer) {
+            for (const sash of sashContainer.children) {
+              (sash as HTMLElement).style.transition = "";
+            }
+          }
+        }, 200);
+      };
+
+      dockBar.element.addEventListener("mouseenter", () => {
+        if (dockBar.api.isCollapsed()) toggleSlide(true);
+      });
+      dockBar.element.addEventListener("mouseleave", () => {
+        if (!dockBar.api.isCollapsed()) toggleSlide(false);
+      });
+    }
+
     fetch("/config")
       .then((res) => res.json())
       .then((data) => api.getPanel("agent-avatar")?.setTitle(data.agent.name))
@@ -45,10 +104,14 @@ function App() {
 
   const onWillDrop = (event: DockviewWillDropEvent) => {
     if (event.position === "center") {
+      const targetType = event.group?.api.location.type;
       const hasGridGroup = event.api.groups.some(
         (g) => g.api.location.type === "grid",
       );
-      if (hasGridGroup || event.group) {
+      if (
+        targetType === "floating" ||
+        (targetType === "grid" && hasGridGroup)
+      ) {
         event.preventDefault();
       }
     }
@@ -74,7 +137,6 @@ function App() {
           onReady={onReady}
           onWillDrop={onWillDrop}
           getTabContextMenuItems={getTabContextMenuItems}
-          singleTabMode="fullwidth"
         />
       </div>
     </div>

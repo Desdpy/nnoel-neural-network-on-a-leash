@@ -19,3 +19,27 @@
 .dockview-theme-github-dark-spaced .dv-groupview .dv-tabs-and-actions-container {
     background-color: transparent !important;
 }
+
+.dockview-theme-github-dark-spaced .dv-groupview.dv-groupview-edge.dv-edge-collapsed > .dv-content-container {
+    display: block;
+}
+
+.dv-view.dv-edge-sliding {
+    will-change: width, left;
+    transition: width 0.15s ease, left 0.15s ease;
+    overflow: hidden !important;
+}
+
+.dockview-theme-github-dark-spaced .dv-groupview:not(.dv-groupview-edge) .dv-tabs-and-actions-container.dv-single-tab .dv-scrollable {
+    flex-grow: 1;
+}
+.dockview-theme-github-dark-spaced .dv-groupview:not(.dv-groupview-edge) .dv-tabs-and-actions-container.dv-single-tab .dv-tabs-container {
+    flex-grow: 1;
+}
+.dockview-theme-github-dark-spaced .dv-groupview:not(.dv-groupview-edge) .dv-tabs-and-actions-container.dv-single-tab .dv-tabs-container .dv-tab {
+    flex-grow: 1;
+    padding: 0px;
+}
+.dockview-theme-github-dark-spaced .dv-groupview:not(.dv-groupview-edge) .dv-tabs-and-actions-container.dv-single-tab .dv-void-container {
+    flex-grow: 0;
+}
