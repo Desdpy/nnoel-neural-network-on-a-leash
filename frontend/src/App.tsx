@@ -45,7 +45,12 @@ function App() {
 
   const onWillDrop = (event: DockviewWillDropEvent) => {
     if (event.position === "center") {
-      event.preventDefault();
+      const hasGridGroup = event.api.groups.some(
+        (g) => g.api.location.type === "grid",
+      );
+      if (hasGridGroup || event.group) {
+        event.preventDefault();
+      }
     }
   };
 

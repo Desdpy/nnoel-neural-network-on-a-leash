@@ -182,8 +182,10 @@ export function NeuralNetworkBackground() {
         p.orbitAngle += p.orbitSpeed * dt;
         p.baseX += p.vx + Math.cos(p.orbitAngle) * p.orbitRadius * 0.01;
         p.baseY += p.vy + Math.sin(p.orbitAngle * 0.7) * p.orbitRadius * 0.01;
-        if (p.baseX < -BOUNDARY_PAD || p.baseX > w + BOUNDARY_PAD) p.vx *= -0.5;
-        if (p.baseY < -BOUNDARY_PAD || p.baseY > h + BOUNDARY_PAD) p.vy *= -0.5;
+        if (p.baseX < -BOUNDARY_PAD || p.baseX > w + BOUNDARY_PAD) p.vx *= -1;
+        if (p.baseY < -BOUNDARY_PAD || p.baseY > h + BOUNDARY_PAD) p.vy *= -1;
+        p.vx += (Math.random() - 0.5) * 0.005;
+        p.vy += (Math.random() - 0.5) * 0.005;
         p.baseX = Math.max(-BOUNDARY_PAD, Math.min(w + BOUNDARY_PAD, p.baseX));
         p.baseY = Math.max(-BOUNDARY_PAD, Math.min(h + BOUNDARY_PAD, p.baseY));
         p.x = p.baseX + Math.sin(t * p.orbitSpeed * 0.5 + p.orbitAngle) * p.orbitRadius * 0.02;
