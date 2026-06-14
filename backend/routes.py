@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from config import AGENT_NAME
+from config import AGENT_NAME, AGENT_SYSTEM_PROMPT
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from llama import generate_stream, get_llm
@@ -69,21 +69,32 @@ def ping():
 
 
 @router.post("/chat")
-def chat(messages: list[dict] = Body(..., embed=True)):
+def chat(message: str = Body(..., embed=True)):
     """
-    Stream a LLM response for the given conversation history.
+    Stream a LLM response for the given user message.
 
-    Accepts a list of {role, content} messages and returns a
-    text/plain SSE stream of tokens.  Returns 502 if the
-    llama.cpp back-end is unreachable.
+    Accepts a plain string (the user's new message) and returns a
+    text/plain SSE stream of tokens.  The backend owns the conversation
+    history — it loads it from the DB, injects the system prompt, and
+    persists both the user message and the assistant reply.
     """
     try:
-        if messages:
-            _append_message(messages[-1]["role"], messages[-1]["content"])
+        _append_message("user", message)
+        history = _load_messages()
+
+        llm_messages = (
+            [{"role": "system", "content": AGENT_SYSTEM_PROMPT}] + history
+            if AGENT_SYSTEM_PROMPT
+            else history
+        )
+
+        print("--- LLM INPUT ---", flush=True)
+        for i, m in enumerate(llm_messages):
+            print(f"  [{i}][{m['role']}] {m['content'][:200]}", flush=True)
 
         def save_and_stream():
             full = ""
-            for token in generate_stream(messages):
+            for token in generate_stream(llm_messages):
                 full += token
                 yield token
             _append_message("assistant", full)
@@ -103,6 +114,3 @@ def chat(messages: list[dict] = Body(..., embed=True)):
 def get_chat():
     """Load the saved messages."""
     return {"messages": _load_messages()}
-
-
-

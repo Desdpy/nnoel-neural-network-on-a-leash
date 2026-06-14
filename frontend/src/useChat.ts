@@ -105,9 +105,8 @@ export function useChat() {
     if (!text) return;
 
     const userMessage: Message = { role: "user", content: text };
-    const conversationHistory = [...messages, userMessage];
 
-    setMessages(conversationHistory);
+    setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setStatus("responding");
 
@@ -118,7 +117,7 @@ export function useChat() {
       const response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversationHistory }),
+        body: JSON.stringify({ message: text }),
         signal: abortControllerRef.current.signal,
       });
 

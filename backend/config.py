@@ -31,3 +31,4 @@ LLM_REPEAT_PENALTY = config["llama"].get("repeat_penalty")
 LLM_CHAT_TEMPLATE_KWARGS = config["llama"].get("chat_template_kwargs", {})
 
 AGENT_NAME = config.get("agent", {}).get("name", "Agent")
+AGENT_SYSTEM_PROMPT = config.get("agent", {}).get("system_prompt", "")

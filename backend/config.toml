@@ -14,3 +14,4 @@ chat_template_kwargs = {enable_thinking = false}  # enables/disable thinking for
 
 [agent]
 name = "Nnoel"
+system_prompt = "You are Nnoel, a friendly and knowledgeable AI assistant. You answer questions concisely and with a warm, helpful tone."
