@@ -42,6 +42,7 @@ const COLORS = [
 
 const CONNECTION_DIST = 200;
 const CONNECTION_DIST_SQ = CONNECTION_DIST * CONNECTION_DIST;
+const BOUNDARY_PAD = 100;
 
 export function NeuralNetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -71,15 +72,15 @@ export function NeuralNetworkBackground() {
     let gridRows = 0;
 
     function buildGrid() {
-      gridCols = Math.ceil(w / CONNECTION_DIST) + 1;
-      gridRows = Math.ceil(h / CONNECTION_DIST) + 1;
+      gridCols = Math.ceil((w + BOUNDARY_PAD * 2) / CONNECTION_DIST) + 1;
+      gridRows = Math.ceil((h + BOUNDARY_PAD * 2) / CONNECTION_DIST) + 1;
       grid = Array.from({ length: gridCols }, () =>
         Array.from({ length: gridRows }, () => []),
       );
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
-        const gx = Math.floor(p.x / CONNECTION_DIST);
-        const gy = Math.floor(p.y / CONNECTION_DIST);
+        const gx = Math.floor((p.x + BOUNDARY_PAD) / CONNECTION_DIST);
+        const gy = Math.floor((p.y + BOUNDARY_PAD) / CONNECTION_DIST);
         if (gx >= 0 && gx < gridCols && gy >= 0 && gy < gridRows) {
           grid[gx][gy].push(i);
         }
@@ -97,10 +98,10 @@ export function NeuralNetworkBackground() {
         const layer = Math.random() < 0.3 ? 0 : Math.random() < 0.5 ? 2 : 1;
         const layerScale = layer === 0 ? 0.6 : layer === 2 ? 1.3 : 1;
         particles.push({
-          x: Math.random() * w,
-          y: Math.random() * h,
-          baseX: Math.random() * w,
-          baseY: Math.random() * h,
+          x: Math.random() * (w + BOUNDARY_PAD * 2) - BOUNDARY_PAD,
+          y: Math.random() * (h + BOUNDARY_PAD * 2) - BOUNDARY_PAD,
+          baseX: Math.random() * (w + BOUNDARY_PAD * 2) - BOUNDARY_PAD,
+          baseY: Math.random() * (h + BOUNDARY_PAD * 2) - BOUNDARY_PAD,
           vx: (Math.random() - 0.5) * 0.2,
           vy: (Math.random() - 0.5) * 0.2,
           size: (Math.random() * 2.5 + 1.5) * layerScale,
@@ -120,25 +121,34 @@ export function NeuralNetworkBackground() {
       buildGrid();
     }
 
-    function fireSignal() {
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const a = Math.floor(Math.random() * particles.length);
-        const b = Math.floor(Math.random() * particles.length);
-        if (a === b) continue;
-        const dx = particles[a].x - particles[b].x;
-        const dy = particles[a].y - particles[b].y;
+    function fireFrom(fromIdx: number) {
+      for (let attempt = 0; attempt < 15; attempt++) {
+        const toIdx = Math.floor(Math.random() * particles.length);
+        if (toIdx === fromIdx) continue;
+        const dx = particles[fromIdx].x - particles[toIdx].x;
+        const dy = particles[fromIdx].y - particles[toIdx].y;
         const distSq = dx * dx + dy * dy;
         if (distSq < CONNECTION_DIST_SQ && distSq > 900) {
-          const src = particles[a];
-          particles[a].firing = 1;
+          const src = particles[fromIdx];
+          particles[fromIdx].firing = 1;
           signals.push({
-            from: a, to: b, progress: 0, retreat: 0,
+            from: fromIdx, to: toIdx, progress: 0, retreat: 0,
             speed: 0.02 + Math.random() * 0.03,
             colorR: src.colorR, colorG: src.colorG, colorB: src.colorB,
             fade: 1,
           });
-          return;
+          return true;
         }
+      }
+      return false;
+    }
+
+    function fireRandomSignal() {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const a = Math.floor(Math.random() * particles.length);
+        const b = Math.floor(Math.random() * particles.length);
+        if (a === b) continue;
+        if (fireFrom(a)) return;
       }
     }
 
@@ -172,10 +182,10 @@ export function NeuralNetworkBackground() {
         p.orbitAngle += p.orbitSpeed * dt;
         p.baseX += p.vx + Math.cos(p.orbitAngle) * p.orbitRadius * 0.01;
         p.baseY += p.vy + Math.sin(p.orbitAngle * 0.7) * p.orbitRadius * 0.01;
-        if (p.baseX < 0 || p.baseX > w) p.vx *= -0.5;
-        if (p.baseY < 0 || p.baseY > h) p.vy *= -0.5;
-        p.baseX = Math.max(0, Math.min(w, p.baseX));
-        p.baseY = Math.max(0, Math.min(h, p.baseY));
+        if (p.baseX < -BOUNDARY_PAD || p.baseX > w + BOUNDARY_PAD) p.vx *= -0.5;
+        if (p.baseY < -BOUNDARY_PAD || p.baseY > h + BOUNDARY_PAD) p.vy *= -0.5;
+        p.baseX = Math.max(-BOUNDARY_PAD, Math.min(w + BOUNDARY_PAD, p.baseX));
+        p.baseY = Math.max(-BOUNDARY_PAD, Math.min(h + BOUNDARY_PAD, p.baseY));
         p.x = p.baseX + Math.sin(t * p.orbitSpeed * 0.5 + p.orbitAngle) * p.orbitRadius * 0.02;
         p.y = p.baseY + Math.cos(t * p.orbitSpeed * 0.3 + p.orbitAngle * 1.3) * p.orbitRadius * 0.02;
 
@@ -192,13 +202,20 @@ export function NeuralNetworkBackground() {
 
       buildGrid();
 
-      if (Math.random() < 0.02 && signals.length < 8) fireSignal();
+      if (Math.random() < 0.04 && signals.length < 12) fireRandomSignal();
       for (let i = signals.length - 1; i >= 0; i--) {
         const s = signals[i];
         const prev = s.progress;
         s.progress += s.speed * dt * 60;
         if (prev < 1 && s.progress >= 1) {
           particles[s.to].firing = 1;
+          const count = Math.random() < 0.4 ? 2 : 1;
+          for (let c = 0; c < count; c++) {
+            if (signals.length >= 12) break;
+            if (Math.random() < 0.75) {
+              fireFrom(s.to);
+            }
+          }
         }
         if (s.progress >= 1) {
           s.retreat += 1.5 * dt;
