@@ -46,14 +46,26 @@ export function useAgentAvatar() {
 
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // Kick off the first motion on mount, deferred to next frame so the
-  // browser gets a chance to paint the initial state and can then animate
-  // the transition when the motion transform is applied.
+  // Track the last transition event so we can detect a stalled cycle.
+  const lastTransitionEvent = useRef(performance.now());
+  const onAnyTransitionEvent = useCallback(() => {
+    lastTransitionEvent.current = performance.now();
+  }, []);
+
+  // Start the animation cycle.  A heartbeat monitors whether the CSS
+  // transition cycle is still running; if no event fires for 5 s the
+  // motion is re-applied (handles cases where the initial transition
+  // silently failed, e.g. after dockview moves the panel between groups).
   useEffect(() => {
-    const id = requestAnimationFrame(() => {
+    const id = setTimeout(() => {
       prevDuration.current = applyMotion();
-    });
-    return () => cancelAnimationFrame(id);
+    }, 200);
+    const heartbeat = setInterval(() => {
+      if (performance.now() - lastTransitionEvent.current > 3000) {
+        prevDuration.current = applyMotion();
+      }
+    }, 1000);
+    return () => { clearTimeout(id); clearInterval(heartbeat); };
   }, []);
 
   // Wraps the mouse‑up handler to also reset the bounce cycle
@@ -82,19 +94,25 @@ export function useAgentAvatar() {
     return () => cancelAnimationFrame(restartRaf.current);
   }, []);
 
-  // Listen for CSS transition‑cancel on the image element so we can restart
+  // Listen for CSS transition events on the image element so we can restart
   // the cycle if the browser aborts a transition (e.g. because the element
-  // was hidden or its display changed)
+  // was moved between dockview groups), and track events for the heartbeat.
   useEffect(() => {
     const el = imgRef.current;
     if (!el) return;
-    const handler = () => handleTransitionCancel();
-    el.addEventListener("transitioncancel", handler);
-    return () => el.removeEventListener("transitioncancel", handler);
+    const onCancel = () => handleTransitionCancel();
+    const onStart = () => onAnyTransitionEvent();
+    el.addEventListener("transitioncancel", onCancel);
+    el.addEventListener("transitionstart", onStart);
+    return () => {
+      el.removeEventListener("transitioncancel", onCancel);
+      el.removeEventListener("transitionstart", onStart);
+    };
   }, []);
 
   // If a transition is cancelled, wait for the element to be re‑connected
   // (e.g. after being moved between dockview groups), then re‑apply a motion.
+  // Gives the DOM a short settling period so the CSS transition fires reliably.
   function handleTransitionCancel() {
     if (restartQueued.current) return;
     restartQueued.current = true;
@@ -103,12 +121,15 @@ export function useAgentAvatar() {
         restartQueued.current = false;
         return;
       }
-      if (imgRef.current?.isConnected) {
-        restartQueued.current = false;
-        prevDuration.current = applyMotion(true);
-      } else {
+      if (!imgRef.current?.isConnected) {
         restartRaf.current = requestAnimationFrame(tryRestart);
+        return;
       }
+      restartQueued.current = false;
+      setTimeout(() => {
+        onAnyTransitionEvent();
+        prevDuration.current = applyMotion(true);
+      }, 200);
     };
     restartRaf.current = requestAnimationFrame(tryRestart);
   }
@@ -118,6 +139,7 @@ export function useAgentAvatar() {
   // 2. Otherwise, mark release as done and process the idle transition
   //    (which either returns to rest or picks the next motion).
   function handleTransitionEnd() {
+    onAnyTransitionEvent();
     if (pressed) return;
     const frameDuration = processReleaseStep();
     if (frameDuration > 0) {
