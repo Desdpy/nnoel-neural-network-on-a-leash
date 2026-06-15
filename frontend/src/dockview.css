@@ -20,15 +20,18 @@
     background-color: transparent !important;
 }
 
-.dockview-theme-github-dark-spaced .dv-groupview.dv-groupview-edge.dv-edge-collapsed > .dv-content-container {
+.dockview-theme-github-dark-spaced .dv-groupview.dv-groupview-edge > .dv-content-container {
     display: block;
 }
 
-.dv-view.dv-edge-sliding {
-    will-change: width, left;
-    transition: width 0.15s ease, left 0.15s ease;
-    overflow: hidden !important;
+.dv-edge-sliding-active .dv-view {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
 }
+.dv-edge-sliding-active .dv-view::-webkit-scrollbar {
+    display: none !important;
+}
+
 
 .dockview-theme-github-dark-spaced .dv-groupview:not(.dv-groupview-edge) .dv-tabs-and-actions-container.dv-single-tab .dv-scrollable {
     flex-grow: 1;

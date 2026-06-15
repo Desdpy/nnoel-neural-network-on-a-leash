@@ -15,6 +15,8 @@ const theme: DockviewTheme = {
   // gap: 8,
 };
 
+const SIDEBAR_WIDTH = 400;
+
 const components = {
   chatPanel: ChatPanel,
   agentAvatarPanel: AgentAvatarPanel
@@ -49,8 +51,8 @@ function App() {
 
     api.addEdgeGroup("right", {
       id: "dock-bar",
-      initialSize: 200,
-      minimumSize: 100,
+      initialSize: SIDEBAR_WIDTH,
+      minimumSize: Math.round(SIDEBAR_WIDTH / 2),
       collapsed: true,
       collapsedSize: 44,
     });
@@ -58,6 +60,9 @@ function App() {
     const dockBar = api.getGroup("dock-bar") as {
       element: HTMLElement;
       api: { expand(): void; collapse(): void; isCollapsed(): boolean };
+      model: { openPanel(panel: { id: string }): void };
+      panels: { id: string }[];
+      activePanel: { id: string } | undefined;
     } | undefined;
     if (dockBar) {
       const viewEl = dockBar.element.closest(".dv-view") as HTMLElement | null;
@@ -67,24 +72,40 @@ function App() {
 
       const toggleSlide = (expanding: boolean) => {
         if (!viewEl || !dockBar) return;
-        viewEl.classList.add("dv-edge-sliding");
-        if (sashContainer) {
-          for (const sash of sashContainer.children) {
-            (sash as HTMLElement).style.transition = "left 0.15s ease";
+        const splitViewEl = viewEl.closest(".dv-split-view-container") as HTMLElement | null;
+        const viewContainer = viewEl.closest(".dv-view-container") as HTMLElement | null;
+
+        if (viewContainer) {
+          for (const v of viewContainer.children) {
+            const el = v as HTMLElement;
+            el.style.transition = "width 0.15s linear, left 0.15s linear";
           }
         }
-        if (expanding) {
-          dockBar.api.expand();
-        } else {
-          dockBar.api.collapse();
+        if (sashContainer) {
+          for (const sash of sashContainer.children) {
+            (sash as HTMLElement).style.transition = "left 0.15s linear";
+          }
         }
+        splitViewEl?.classList.add("dv-edge-sliding-active");
+        requestAnimationFrame(() => {
+          if (expanding) {
+            dockBar.api.expand();
+          } else {
+            dockBar.api.collapse();
+          }
+        });
         setTimeout(() => {
-          viewEl.classList.remove("dv-edge-sliding");
+          if (viewContainer) {
+            for (const v of viewContainer.children) {
+              (v as HTMLElement).style.transition = "";
+            }
+          }
           if (sashContainer) {
             for (const sash of sashContainer.children) {
               (sash as HTMLElement).style.transition = "";
             }
           }
+          splitViewEl?.classList.remove("dv-edge-sliding-active");
         }, 200);
       };
 
@@ -93,6 +114,19 @@ function App() {
       });
       dockBar.element.addEventListener("mouseleave", () => {
         if (!dockBar.api.isCollapsed()) toggleSlide(false);
+      });
+
+      dockBar.element.addEventListener("mouseover", (e) => {
+        const tabEl = (e.target as HTMLElement).closest(".dv-tab");
+        if (!tabEl) return;
+        const scrollable = tabEl.closest(".dv-scrollable");
+        if (!scrollable) return;
+        const tabs = Array.from(scrollable.querySelectorAll(".dv-tab"));
+        const index = tabs.indexOf(tabEl);
+        const panel = dockBar.panels[index];
+        if (panel && panel !== dockBar.activePanel) {
+          dockBar.model.openPanel(panel);
+        }
       });
     }
 
