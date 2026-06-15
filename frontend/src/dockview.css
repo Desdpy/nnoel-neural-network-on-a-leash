@@ -25,11 +25,15 @@
 }
 
 .dv-edge-sliding-active .dv-view {
+    transition: width 0.15s linear, left 0.15s linear !important;
     scrollbar-width: none !important;
     -ms-overflow-style: none !important;
 }
 .dv-edge-sliding-active .dv-view::-webkit-scrollbar {
     display: none !important;
+}
+.dv-edge-sliding-active .dv-sash {
+    transition: left 0.15s linear !important;
 }
 
 

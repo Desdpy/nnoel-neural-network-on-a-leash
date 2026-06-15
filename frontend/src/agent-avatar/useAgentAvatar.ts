@@ -8,8 +8,8 @@ import { useMotionCycle } from "./useMotionCycle";
 // "getting close" animation.  Exposes the CSS transform state and event handlers
 // needed by the AgentAvatar component.
 export function useAgentAvatar() {
-  const [transform, setTransform] = useState("");
-  const [duration, setDuration] = useState(0);
+  const [transform, setTransform] = useState("none");
+  const [duration, setDuration] = useState(0.3);
   const [timing, setTiming] = useState("ease-in-out");
 
   // Central state‑setter: accepts partial updates and only changes what is supplied.
@@ -46,9 +46,14 @@ export function useAgentAvatar() {
 
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // Kick off the first motion on mount
+  // Kick off the first motion on mount, deferred to next frame so the
+  // browser gets a chance to paint the initial state and can then animate
+  // the transition when the motion transform is applied.
   useEffect(() => {
-    prevDuration.current = applyMotion();
+    const id = requestAnimationFrame(() => {
+      prevDuration.current = applyMotion();
+    });
+    return () => cancelAnimationFrame(id);
   }, []);
 
   // Wraps the mouse‑up handler to also reset the bounce cycle
@@ -88,9 +93,8 @@ export function useAgentAvatar() {
     return () => el.removeEventListener("transitioncancel", handler);
   }, []);
 
-  // If a transition is cancelled, wait for mouse‑up to finish, then re‑apply
-  // a bounce motion.  If the "getting close" overlay is still mounted, do it
-  // immediately; otherwise defer to the next animation frame.
+  // If a transition is cancelled, wait for the element to be re‑connected
+  // (e.g. after being moved between dockview groups), then re‑apply a motion.
   function handleTransitionCancel() {
     if (restartQueued.current) return;
     restartQueued.current = true;
@@ -99,7 +103,7 @@ export function useAgentAvatar() {
         restartQueued.current = false;
         return;
       }
-      if (gettingCloseRef.current?.isConnected) {
+      if (imgRef.current?.isConnected) {
         restartQueued.current = false;
         prevDuration.current = applyMotion(true);
       } else {

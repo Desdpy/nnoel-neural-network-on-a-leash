@@ -59,33 +59,27 @@ function App() {
 
     const dockBar = api.getGroup("dock-bar") as {
       element: HTMLElement;
-      api: { expand(): void; collapse(): void; isCollapsed(): boolean };
-      model: { openPanel(panel: { id: string }): void };
+      api: {
+        expand(): void;
+        collapse(): void;
+        isCollapsed(): boolean;
+        onDidCollapsedChange: (cb: () => void) => { dispose: () => void };
+      };
+      model: {
+        openPanel(panel: { id: string }): void;
+        onDidAddPanel: (cb: () => void) => { dispose: () => void };
+        onDidRemovePanel: (cb: () => void) => { dispose: () => void };
+      };
       panels: { id: string }[];
       activePanel: { id: string } | undefined;
     } | undefined;
     if (dockBar) {
-      const viewEl = dockBar.element.closest(".dv-view") as HTMLElement | null;
-      const sashContainer = viewEl
-        ?.closest(".dv-split-view-container")
-        ?.querySelector(".dv-sash-container") as HTMLElement | null;
-
       const toggleSlide = (expanding: boolean) => {
-        if (!viewEl || !dockBar) return;
-        const splitViewEl = viewEl.closest(".dv-split-view-container") as HTMLElement | null;
-        const viewContainer = viewEl.closest(".dv-view-container") as HTMLElement | null;
+        if (!dockBar) return;
+        const splitViewEl = dockBar.element.closest(
+          ".dv-split-view-container",
+        ) as HTMLElement | null;
 
-        if (viewContainer) {
-          for (const v of viewContainer.children) {
-            const el = v as HTMLElement;
-            el.style.transition = "width 0.15s linear, left 0.15s linear";
-          }
-        }
-        if (sashContainer) {
-          for (const sash of sashContainer.children) {
-            (sash as HTMLElement).style.transition = "left 0.15s linear";
-          }
-        }
         splitViewEl?.classList.add("dv-edge-sliding-active");
         requestAnimationFrame(() => {
           if (expanding) {
@@ -95,16 +89,6 @@ function App() {
           }
         });
         setTimeout(() => {
-          if (viewContainer) {
-            for (const v of viewContainer.children) {
-              (v as HTMLElement).style.transition = "";
-            }
-          }
-          if (sashContainer) {
-            for (const sash of sashContainer.children) {
-              (sash as HTMLElement).style.transition = "";
-            }
-          }
           splitViewEl?.classList.remove("dv-edge-sliding-active");
         }, 200);
       };
@@ -128,6 +112,27 @@ function App() {
           dockBar.model.openPanel(panel);
         }
       });
+
+      const contentEl = dockBar.element.querySelector(
+        ".dv-content-container",
+      ) as HTMLElement | null;
+      const emptyMsg = document.createElement("div");
+      emptyMsg.textContent = "Currently no tabs in sidebar";
+      emptyMsg.style.cssText =
+        "display:none;align-items:center;justify-content:center;height:100%;color:#666;font-size:13px;text-align:center;padding:16px;box-sizing:border-box;";
+      contentEl?.appendChild(emptyMsg);
+
+      function updateEmptyMsg() {
+        if (!dockBar) return;
+        emptyMsg.style.display =
+          dockBar.panels.length === 0 && !dockBar.api.isCollapsed()
+            ? "flex"
+            : "none";
+      }
+      updateEmptyMsg();
+      dockBar.model.onDidAddPanel(updateEmptyMsg);
+      dockBar.model.onDidRemovePanel(updateEmptyMsg);
+      dockBar.api.onDidCollapsedChange(updateEmptyMsg);
     }
 
     fetch("/config")
