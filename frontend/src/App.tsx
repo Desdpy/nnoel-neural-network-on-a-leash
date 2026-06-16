@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DockviewReact, themeGithubDarkSpaced } from "dockview";
 import type {
   DockviewTheme,
@@ -24,12 +24,41 @@ const components = {
 };
 
 function App() {
-  const [api, setApi] = useState<DockviewReadyEvent["api"]>();
-  const [activePanel, setActivePanel] = useState<string>();
+  const [taskbarCollapsed, setTaskbarCollapsed] = useState(true);
+  const taskbarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const el = taskbarRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const inside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+
+      setTaskbarCollapsed((prev) => {
+        if (inside && prev) return false;
+        if (!inside && !prev) return true;
+        return prev;
+      });
+    }
+
+    function onLeave() {
+      setTaskbarCollapsed(true);
+    }
+
+    document.addEventListener("mousemove", onMove, { passive: true });
+    document.addEventListener("mouseleave", onLeave, { passive: true });
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseleave", onLeave);
+    };
+  }, []);
 
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api;
-    setApi(api);
 
     api.onWillShowOverlay((event) => {
       if (event.group?.api.location.type !== "grid") return;
@@ -140,9 +169,39 @@ function App() {
       dockBar.api.onDidCollapsedChange(updateEmptyMsg);
     }
 
-    api.onDidActivePanelChange((panel) => {
-      setActivePanel(panel?.id);
+    let activeGroupEl: HTMLElement | null = null;
+
+    function setGroupBorder(group: any) {
+      if (activeGroupEl) {
+        activeGroupEl.style.outline = "";
+      }
+      if (group && group.api.location.type !== "edge") {
+        group.element.style.outline = "1px solid #EE8C57";
+        group.element.style.outlineOffset = "-1px";
+        activeGroupEl = group.element;
+      } else {
+        activeGroupEl = null;
+      }
+    }
+
+    api.onDidActiveGroupChange((group) => {
+      setGroupBorder(group);
     });
+
+    const initialGroup = api.groups.find(
+      (g) => g.api.isActive,
+    );
+    setGroupBorder(initialGroup);
+
+    function addHoverFocus(group: any) {
+      if (group.api.location.type === "edge") return;
+      group.element.addEventListener("mouseenter", () => {
+        group.activePanel?.focus();
+      });
+    }
+
+    api.groups.forEach(addHoverFocus);
+    api.onDidAddGroup(addHoverFocus);
 
     fetch("/config")
       .then((res) => res.json())
@@ -177,14 +236,15 @@ function App() {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      <NeuralNetworkBackground />
       <div className="relative w-full h-full flex" style={{ zIndex: 1 }}>
-        <div className="pl-[10px] py-[10px] shrink-0">
-          <div className="w-[52px] h-full">
-            <TaskBar api={api} activePanel={activePanel} />
-          </div>
+        <div
+          ref={taskbarRef}
+          className={`${taskbarCollapsed ? 'w-9' : 'w-40'} shrink-0 transition-[width] duration-200`}
+        >
+          <TaskBar collapsed={taskbarCollapsed} onToggle={() => setTaskbarCollapsed(c => !c)} />
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 relative rounded-l-2xl overflow-hidden">
+          <NeuralNetworkBackground />
           <DockviewReact
             theme={theme}
             components={components}

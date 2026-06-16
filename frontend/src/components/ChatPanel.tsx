@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -5,7 +6,7 @@ import { useChat } from "../useChat";
 import type { IDockviewPanelProps } from "dockview";
 import ReactMarkdown from "react-markdown";
 
-export function ChatPanel(_props: IDockviewPanelProps) {
+export function ChatPanel({ api }: IDockviewPanelProps) {
   const {
     messages,
     inputValue,
@@ -19,6 +20,22 @@ export function ChatPanel(_props: IDockviewPanelProps) {
     handleStop,
     handleSubmit,
   } = useChat();
+
+  useEffect(() => {
+    if (api.isGroupActive) {
+      textareaRef.current?.focus();
+    }
+
+    const disposable = api.onDidActiveGroupChange((e) => {
+      if (e.isActive) {
+        textareaRef.current?.focus();
+      } else {
+        textareaRef.current?.blur();
+      }
+    });
+
+    return () => disposable.dispose();
+  }, [api, textareaRef]);
 
   return (
     <div className="flex flex-col h-full text-text-base">

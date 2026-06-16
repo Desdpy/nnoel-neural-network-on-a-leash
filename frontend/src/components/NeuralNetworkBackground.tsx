@@ -88,8 +88,10 @@ export function NeuralNetworkBackground() {
     }
 
     function resize() {
-      w = canvas!.width = window.innerWidth;
-      h = canvas!.height = window.innerHeight;
+      const parent = canvas!.parentElement;
+      if (!parent) return;
+      w = canvas!.width = window.innerWidth - 36;
+      h = canvas!.height = parent.clientHeight;
       cx = w / 2;
       cy = h / 2;
       particles = [];
@@ -332,8 +334,9 @@ export function NeuralNetworkBackground() {
     }
 
     function onMouseMove(e: MouseEvent) {
-      mouseX = e.clientX;
-      mouseY = e.clientY;
+      const rect = canvas!.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
     }
 
     resize();
@@ -351,8 +354,8 @@ export function NeuralNetworkBackground() {
   return (
     <canvas
       ref={canvasRef}
-      className="fixed inset-0 w-full h-full pointer-events-none"
-      style={{ zIndex: 0 }}
+      className="absolute top-0 right-0"
+      style={{ zIndex: -1 }}
     />
   );
 }
