@@ -1,29 +1,38 @@
+/* Override Dockview library styles for the GitHub-dark-spaced theme */
+
+/* Center tab text in default tabs */
 .dockview-theme-github-dark-spaced .dv-tab .dv-default-tab .dv-default-tab-content {
     text-align: center;
     margin-right: 0;
 }
 
+/* Make the dockview container and root transparent (NN background shows through) */
 .dockview-theme-github-dark-spaced,
 .dockview-theme-github-dark-spaced .dv-dockview {
     background-color: transparent !important;
 }
 
+/* Group panels have a semi-transparent dark background */
 .dockview-theme-github-dark-spaced .dv-groupview {
     background-color: rgba(22, 27, 34, 0.8) !important;
 }
 
+/* Content areas inside groups are transparent (let the group background show) */
 .dockview-theme-github-dark-spaced .dv-groupview .dv-content-container {
     background-color: transparent !important;
 }
 
+/* Tab bar inside a group is transparent */
 .dockview-theme-github-dark-spaced .dv-groupview .dv-tabs-and-actions-container {
     background-color: transparent !important;
 }
 
+/* Edge (sidebar) groups render their content as a block */
 .dockview-theme-github-dark-spaced .dv-groupview.dv-groupview-edge > .dv-content-container {
     display: block;
 }
 
+/* Smooth animated slide for the sidebar edge panel */
 .dv-edge-sliding-active .dv-view {
     transition: width 0.15s linear, left 0.15s linear !important;
     scrollbar-width: none !important;
@@ -36,7 +45,7 @@
     transition: left 0.15s linear !important;
 }
 
-
+/* Single-tab groups: stretch the tab to fill the whole width */
 .dockview-theme-github-dark-spaced .dv-groupview:not(.dv-groupview-edge) .dv-tabs-and-actions-container.dv-single-tab .dv-scrollable {
     flex-grow: 1;
 }

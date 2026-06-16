@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+// Styled textarea component with auto-sizing height and accessible focus/error states
 const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<"textarea">>(
   function Textarea({ className, ...props }, ref) {
     return (

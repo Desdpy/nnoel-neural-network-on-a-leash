@@ -6,12 +6,14 @@ interface TaskBarProps {
   onToggle?: () => void;
 }
 
+// List of app shortcuts shown in the expanded taskbar
 const tasks = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "agent", label: "Agent", icon: Bot },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
+// Live clock hook — updates HH:MM:SS every second
 function useClock() {
   const [time, setTime] = useState(() => {
     const now = new Date();
@@ -39,9 +41,11 @@ function useClock() {
   return time;
 }
 
+// A collapsible left sidebar showing app shortcuts and a live clock
 export function TaskBar({ collapsed, onToggle }: TaskBarProps) {
   const { h, m, s } = useClock();
 
+  // Collapsed mode: just a thin vertical strip with a clock and expand arrow
   if (collapsed) {
     return (
       <button
@@ -62,6 +66,7 @@ export function TaskBar({ collapsed, onToggle }: TaskBarProps) {
     );
   }
 
+  // Expanded mode: full-width sidebar with app buttons and a clock
   return (
     <div className="flex flex-col w-full h-full bg-[rgba(22,27,34,0.8)] rounded-[20px] overflow-hidden pb-3">
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">

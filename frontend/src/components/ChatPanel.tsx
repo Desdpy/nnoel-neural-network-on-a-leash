@@ -6,6 +6,7 @@ import { useChat } from "../useChat";
 import type { IDockviewPanelProps } from "dockview";
 import ReactMarkdown from "react-markdown";
 
+// The main chat panel: shows a scrollable message list with a textarea input at the bottom
 export function ChatPanel({ api }: IDockviewPanelProps) {
   const {
     messages,
@@ -21,6 +22,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     handleSubmit,
   } = useChat();
 
+  // Focus the textarea when this panel becomes active; blur when it loses focus
   useEffect(() => {
     if (api.isGroupActive) {
       textareaRef.current?.focus();
@@ -45,6 +47,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
         </div>
       ) : (
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3 scrollbar-thin [scrollbar-color:var(--border)_transparent]">
+        {/* Render each message — user messages right-aligned, assistant left-aligned */}
         {messages.map((msg, index) => (
           <div
             key={index}
@@ -54,6 +57,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
                 : "self-start bg-surface-raised rounded-bl-sm"
             }`}
           >
+            {/* Render message body as Markdown — wrap <p> in <span> to avoid extra block padding */}
             <ReactMarkdown
               components={{
                 p: ({ children }) => <span>{children}</span>,
@@ -71,6 +75,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
           </div>
         ))}
 
+        {/* Animated "typing" dots while the LLM is generating a response */}
         {status === "responding" && (
           <div className="flex gap-1 px-4 py-3 self-start bg-surface-raised rounded-2xl rounded-bl-sm">
             <span className="w-2 h-2 bg-muted-fg rounded-full animate-typing" />
@@ -97,6 +102,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
             disabled={status === "responding"}
             autoComplete="off"
           />
+          {/* Show a stop button while streaming, otherwise show a send button */}
           {status === "responding" ? (
             <Button
               type="button"

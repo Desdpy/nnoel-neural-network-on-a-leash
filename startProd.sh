@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Start Nnoel directly (no Docker) — builds the frontend, activates venv, downloads model if missing
 set -e
 
 echo "==> Building frontend..."
@@ -7,6 +8,7 @@ cd frontend && npm run build && cd ..
 echo ""
 echo "==> Starting..."
 
+# Activate the Python virtual environment if it exists
 VENV_DIR="backend/.venv"
 if [ -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
@@ -16,6 +18,7 @@ MODEL_DIR="models"
 MAIN_MODEL="$MODEL_DIR/main.gguf"
 MMPROJ_MODEL="$MODEL_DIR/main-mmproj.gguf"
 
+# Download a model file from Hugging Face only if it's not already present
 download_if_missing() {
     url="$1"
     path="$2"
@@ -32,4 +35,5 @@ download_if_missing() {
 download_if_missing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" "$MAIN_MODEL"
 download_if_missing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf" "$MMPROJ_MODEL"
 
+# Run the FastAPI server
 python3 backend/server.py

@@ -1,3 +1,4 @@
+# GitHub Actions workflow: build Docker image and push to GitHub Container Registry
 name: Build & Push
 on:
   push:
@@ -8,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+      packages: write   # Needed to push to ghcr.io
     steps:
       - uses: actions/checkout@v4
       - name: Compute image tag
@@ -24,5 +25,6 @@ jobs:
         with:
           push: true
           tags: ${{ steps.meta.outputs.tag }}
-          provenance: false # Disable provenance to avoid unknown/unknown
-          sbom: false       # Disable sbom to avoid unknown/unknown
+          # Disable provenance/SBOM metadata to avoid "unknown/unknown" attestations
+          provenance: false
+          sbom: false

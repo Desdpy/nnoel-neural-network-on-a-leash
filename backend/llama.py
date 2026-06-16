@@ -15,10 +15,13 @@ from config import (
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import get_chat_completion_handler
 
+# Singleton — the LLM model is loaded once and cached here
 _llm: Llama | None = None
 
 
 def _make_template_handler(handler: Any, extra_kwargs: dict[str, Any]) -> Any:
+    """Wrap the default chat-template handler so extra kwargs (e.g. tokenizer
+    settings from config) are injected on every call."""
     def wrapped(**kw: Any) -> Any:
         return handler(**{**kw, **extra_kwargs})
 
@@ -26,17 +29,21 @@ def _make_template_handler(handler: Any, extra_kwargs: dict[str, Any]) -> Any:
 
 
 def get_llm() -> Llama:
+    """Lazy-load and return the singleton Llama model instance."""
     global _llm
     if _llm is None:
+        # Build the model kwargs from configuration
         kwargs: dict[str, Any] = {
             "model_path": LLM_MODEL_PATH,
             "n_ctx": LLM_N_CTX,
             "verbose": True,
         }
+        # Attach a multimodal projection file if one exists on disk
         if LLM_MMPROJ_PATH:
             kwargs["mmproj"] = LLM_MMPROJ_PATH
         _llm = Llama(**kwargs)
 
+        # Override the chat template handler with extra kwargs if configured
         if LLM_CHAT_TEMPLATE_KWARGS:
             original = _llm._chat_handlers.get(_llm.chat_format) or get_chat_completion_handler(_llm.chat_format)  # type: ignore[attr-defined]
             _llm.chat_handler = _make_template_handler(original, LLM_CHAT_TEMPLATE_KWARGS)
@@ -45,8 +52,10 @@ def get_llm() -> Llama:
 
 
 def generate_stream(messages: list[dict]):
+    """Generate a streaming chat completion, yielding one text token at a time."""
     llm = get_llm()
 
+    # Only pass sampling parameters that are explicitly set (not None)
     gen_kwargs: dict[str, Any] = {}
     if LLM_TEMPERATURE is not None:
         gen_kwargs["temperature"] = LLM_TEMPERATURE
@@ -60,12 +69,15 @@ def generate_stream(messages: list[dict]):
         gen_kwargs["presence_penalty"] = LLM_PRESENCE_PENALTY
     if LLM_REPEAT_PENALTY is not None:
         gen_kwargs["repeat_penalty"] = LLM_REPEAT_PENALTY
+
+    # Create a streaming chat completion — each chunk is a partial delta
     stream = llm.create_chat_completion(
         messages=messages,  # type: ignore[arg-type]
         stream=True,
         **gen_kwargs,
     )
     for chunk in stream:
+        # Extract the text delta from the chunk's choices[0].delta.content
         token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")  # type: ignore[union-attr]
         if token:
             yield token

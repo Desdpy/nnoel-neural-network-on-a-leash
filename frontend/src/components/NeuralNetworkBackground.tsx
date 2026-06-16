@@ -1,38 +1,33 @@
 import { useEffect, useRef } from "react";
 
+// A single glowing node in the neural network visualization
 interface Particle {
-  x: number;
-  y: number;
-  baseX: number;
-  baseY: number;
-  vx: number;
-  vy: number;
-  size: number;
-  alpha: number;
-  pulseSpeed: number;
-  pulsePhase: number;
-  colorR: number;
-  colorG: number;
-  colorB: number;
-  orbitAngle: number;
-  orbitSpeed: number;
-  orbitRadius: number;
-  layer: number;
-  firing: number;
+  x: number; y: number;        // current screen position
+  baseX: number; baseY: number; // anchor position (particle drifts around this)
+  vx: number; vy: number;      // velocity for Brownian-like motion
+  size: number;                 // radius in pixels
+  alpha: number;                // base opacity
+  pulseSpeed: number;           // how fast the glow oscillates
+  pulsePhase: number;           // random phase offset so particles don't pulse in sync
+  colorR: number; colorG: number; colorB: number; // RGB color from the palette
+  orbitAngle: number;           // current angle in the local orbit
+  orbitSpeed: number;           // angular velocity of the orbit
+  orbitRadius: number;          // radius of the orbital drift
+  layer: number;                // 0=background, 1=mid, 2=foreground (affects scale)
+  firing: number;               // 0→1 brightness boost when "firing" a signal
 }
 
+// A traveling pulse from one particle to another
 interface Signal {
-  from: number;
-  to: number;
-  progress: number;
-  retreat: number;
-  speed: number;
-  colorR: number;
-  colorG: number;
-  colorB: number;
-  fade: number;
+  from: number; to: number;     // particle indices
+  progress: number;             // 0→1 travel progress
+  retreat: number;              // 0→1 fade-back after reaching destination
+  speed: number;                // how fast the pulse travels
+  colorR: number; colorG: number; colorB: number; // inherited from source
+  fade: number;                 // overall opacity multiplier
 }
 
+// The four accent colors used for particles and connections
 const COLORS = [
   { r: 206, g: 231, b: 227 },
   { r: 238, g: 140, b: 87 },
@@ -44,6 +39,7 @@ const CONNECTION_DIST = 200;
 const CONNECTION_DIST_SQ = CONNECTION_DIST * CONNECTION_DIST;
 const BOUNDARY_PAD = 100;
 
+// Animated neural-network-style particle background rendered on a <canvas>
 export function NeuralNetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -59,18 +55,20 @@ export function NeuralNetworkBackground() {
     let signals: Signal[] = [];
     const PARTICLE_COUNT = 150;
 
-    let w: number;
-    let h: number;
-    let cx: number;
-    let cy: number;
+    let w: number;  // canvas width
+    let h: number;  // canvas height
+    let cx: number; // center x (for radial gradient)
+    let cy: number; // center y
     let mouseX = -1000;
     let mouseY = -1000;
     const MOUSE_INFLUENCE = 180;
 
+    // Spatial grid for efficient neighbor lookups (avoids O(n²) distance checks)
     let grid: number[][][];
     let gridCols = 0;
     let gridRows = 0;
 
+    // Rebuild the spatial grid based on current particle positions
     function buildGrid() {
       gridCols = Math.ceil((w + BOUNDARY_PAD * 2) / CONNECTION_DIST) + 1;
       gridRows = Math.ceil((h + BOUNDARY_PAD * 2) / CONNECTION_DIST) + 1;
@@ -87,6 +85,7 @@ export function NeuralNetworkBackground() {
       }
     }
 
+    // Resize the canvas and (re)generate all particles
     function resize() {
       const parent = canvas!.parentElement;
       if (!parent) return;
@@ -97,6 +96,7 @@ export function NeuralNetworkBackground() {
       particles = [];
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+        // Distribute across three depth layers
         const layer = Math.random() < 0.3 ? 0 : Math.random() < 0.5 ? 2 : 1;
         const layerScale = layer === 0 ? 0.6 : layer === 2 ? 1.3 : 1;
         particles.push({
@@ -123,6 +123,7 @@ export function NeuralNetworkBackground() {
       buildGrid();
     }
 
+    // Launch a signal from one particle to a random nearby particle
     function fireFrom(fromIdx: number) {
       for (let attempt = 0; attempt < 15; attempt++) {
         const toIdx = Math.floor(Math.random() * particles.length);
@@ -145,6 +146,7 @@ export function NeuralNetworkBackground() {
       return false;
     }
 
+    // Try to fire a random signal between two random particles
     function fireRandomSignal() {
       for (let attempt = 0; attempt < 20; attempt++) {
         const a = Math.floor(Math.random() * particles.length);
@@ -154,19 +156,23 @@ export function NeuralNetworkBackground() {
       }
     }
 
+    // Target ~24 fps for the canvas animation
     const FRAME_INTERVAL = 1000 / 24;
     let lastFrameTime = 0;
 
+    // Main animation loop
     function draw(time: number) {
       animationId = requestAnimationFrame(draw);
 
+      // Throttle to ~24 fps
       const elapsed = time - lastFrameTime;
       if (elapsed < FRAME_INTERVAL) return;
       lastFrameTime = time - (elapsed % FRAME_INTERVAL);
 
-      const dt = FRAME_INTERVAL / 1000;
-      const t = time * 0.001;
+      const dt = FRAME_INTERVAL / 1000; // seconds per frame
+      const t = time * 0.001;           // seconds since page load
 
+      // --- Background ---
       ctx!.fillStyle = "#0d1117";
       ctx!.fillRect(0, 0, w, h);
 
@@ -179,6 +185,7 @@ export function NeuralNetworkBackground() {
         ctx!.fillRect(0, 0, w, h);
       }
 
+      // --- Update particle positions ---
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         p.orbitAngle += p.orbitSpeed * dt;
@@ -193,8 +200,10 @@ export function NeuralNetworkBackground() {
         p.x = p.baseX + Math.sin(t * p.orbitSpeed * 0.5 + p.orbitAngle) * p.orbitRadius * 0.02;
         p.y = p.baseY + Math.cos(t * p.orbitSpeed * 0.3 + p.orbitAngle * 1.3) * p.orbitRadius * 0.02;
 
+        // Decay the firing boost over time
         p.firing *= Math.pow(0.88, dt * 60);
 
+        // Mouse proximity triggers firing
         const dx = p.x - mouseX;
         const dy = p.y - mouseY;
         const distSq = dx * dx + dy * dy;
@@ -204,13 +213,16 @@ export function NeuralNetworkBackground() {
         }
       }
 
+      // --- Draw connections between nearby particles ---
       buildGrid();
 
+      // --- Update and draw signals ---
       if (Math.random() < 0.04 && signals.length < 12) fireRandomSignal();
       for (let i = signals.length - 1; i >= 0; i--) {
         const s = signals[i];
         const prev = s.progress;
         s.progress += s.speed * dt * 60;
+        // When a signal reaches its target, make the target flash and possibly chain
         if (prev < 1 && s.progress >= 1) {
           particles[s.to].firing = 1;
           const count = Math.random() < 0.4 ? 2 : 1;
@@ -221,12 +233,14 @@ export function NeuralNetworkBackground() {
             }
           }
         }
+        // After reaching destination, the signal retreats back and is removed
         if (s.progress >= 1) {
           s.retreat += 1.5 * dt;
           if (s.retreat >= 1) signals.splice(i, 1);
         }
       }
 
+      // Draw all connection lines (using spatial grid for efficient neighbor lookup)
       for (let gx = 0; gx < gridCols; gx++) {
         for (let gy = 0; gy < gridRows; gy++) {
           const cell = grid[gx][gy];
@@ -234,6 +248,7 @@ export function NeuralNetworkBackground() {
           for (let ci = 0; ci < cell.length; ci++) {
             const i = cell[ci];
             const a = particles[i];
+            // Connect within the same cell
             for (let cj = ci + 1; cj < cell.length; cj++) {
               const j = cell[cj];
               const b = particles[j];
@@ -252,6 +267,7 @@ export function NeuralNetworkBackground() {
                 ctx!.stroke();
               }
             }
+            // Connect to neighboring cells
             for (let nx = -1; nx <= 1; nx++) {
               for (let ny = -1; ny <= 1; ny++) {
                 if (nx === 0 && ny === 0) continue;
@@ -281,6 +297,7 @@ export function NeuralNetworkBackground() {
         }
       }
 
+      // Draw traveling signal lines (shooting from source toward target, then retreating)
       for (const s of signals) {
         const a = particles[s.from];
         const b = particles[s.to];
@@ -307,12 +324,14 @@ export function NeuralNetworkBackground() {
 
       }
 
+      // Draw all particles as glowing dots
       for (const p of particles) {
         const pulse = Math.sin(t * p.pulseSpeed + p.pulsePhase) * 0.3 + 0.7;
         const firingBoost = p.firing * 2;
         const alpha = Math.min(p.alpha * pulse + firingBoost * 0.3, 1);
         const size = p.size * (pulse * 0.4 + 0.6) * (1 + firingBoost * 0.5);
         if (size < 0.3) continue;
+        // Outer glow
         const glowSize = size * (5 + p.firing * 3);
         const glowAlpha = alpha * (0.3 + p.firing * 0.3);
         const grad = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowSize);
@@ -322,10 +341,12 @@ export function NeuralNetworkBackground() {
         ctx!.beginPath();
         ctx!.arc(p.x, p.y, glowSize, 0, Math.PI * 2);
         ctx!.fill();
+        // Core dot
         ctx!.fillStyle = `rgba(${p.colorR}, ${p.colorG}, ${p.colorB}, ${alpha})`;
         ctx!.beginPath();
         ctx!.arc(p.x, p.y, size, 0, Math.PI * 2);
         ctx!.fill();
+        // Bright center highlight
         ctx!.fillStyle = `rgba(255, 255, 255, ${alpha * 0.3})`;
         ctx!.beginPath();
         ctx!.arc(p.x, p.y, size * 0.3, 0, Math.PI * 2);
@@ -333,6 +354,7 @@ export function NeuralNetworkBackground() {
       }
     }
 
+    // Track mouse position to create interactive glow around the cursor
     function onMouseMove(e: MouseEvent) {
       const rect = canvas!.getBoundingClientRect();
       mouseX = e.clientX - rect.left;

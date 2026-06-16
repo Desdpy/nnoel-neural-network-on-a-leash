@@ -1,14 +1,15 @@
+# Docker Compose for production — pulls the prebuilt image from GitHub Container Registry
 services:
   nnoel:
     image: ghcr.io/desdpy/nnoel-neural-network-on-a-leash:latest
     ports:
       - "5000:5000"
     environment:
-      # Needed so last log doesn't get stuck in buffer
+      # Flush Python stdout/stderr immediately (no buffering)
       PYTHONUNBUFFERED: "1"
     volumes:
-      - models_data:/app/models
-      - ./data:/app/data
+      - models_data:/app/models   # Persist downloaded models
+      - ./data:/app/data          # Persist chat history (SQLite)
     restart: unless-stopped
 
 volumes:

@@ -12,21 +12,25 @@ import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 import { TaskBar } from "./components/TaskBar";
 
+// Dark theme for the dockable panel library
 const theme: DockviewTheme = {
   ...themeGithubDarkSpaced,
 };
 
 const SIDEBAR_WIDTH = 400;
 
+// Map panel component names to their React components for Dockview
 const components = {
   chatPanel: ChatPanel,
   agentAvatarPanel: AgentAvatarPanel,
 };
 
 function App() {
+  // Track whether the left-side taskbar is collapsed (auto-hide on mouse leave)
   const [taskbarCollapsed, setTaskbarCollapsed] = useState(true);
   const taskbarRef = useRef<HTMLDivElement>(null);
 
+  // Auto-hide/show the taskbar based on mouse position
   useEffect(() => {
     function onMove(e: MouseEvent) {
       const el = taskbarRef.current;
@@ -57,9 +61,11 @@ function App() {
     };
   }, []);
 
+  // Called once the Dockview layout is ready — set up panels and interactivity
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api;
 
+    // Prevent dropping tabs into the center of a grid group (only side-docking allowed)
     api.onWillShowOverlay((event) => {
       if (event.group?.api.location.type !== "grid") return;
       if (event.kind === "tab") {
@@ -70,6 +76,7 @@ function App() {
       }
     });
 
+    // Add the two main panels side-by-side: Chat on the left, Agent avatar on the right
     api.addPanel({
       id: "chat",
       component: "chatPanel",
@@ -83,6 +90,7 @@ function App() {
       position: { direction: "right", referencePanel: "chat" },
     });
 
+    // Add a collapsible right-side edge group (the "dock bar" / sidebar)
     api.addEdgeGroup("right", {
       id: "dock-bar",
       initialSize: SIDEBAR_WIDTH,
@@ -91,6 +99,7 @@ function App() {
       collapsedSize: 44,
     });
 
+    // --- Sidebar (dock-bar) interactivity setup ---
     const dockBar = api.getGroup("dock-bar") as {
       element: HTMLElement;
       api: {
@@ -108,6 +117,7 @@ function App() {
       activePanel: { id: string } | undefined;
     } | undefined;
     if (dockBar) {
+      // Animate slide-in/out by toggling a CSS class before expanding/collapsing
       const toggleSlide = (expanding: boolean) => {
         if (!dockBar) return;
         const splitViewEl = dockBar.element.closest(
@@ -127,6 +137,7 @@ function App() {
         }, 200);
       };
 
+      // Hover to expand / auto-collapse on leave
       dockBar.element.addEventListener("mouseenter", () => {
         if (dockBar.api.isCollapsed()) toggleSlide(true);
       });
@@ -134,6 +145,7 @@ function App() {
         if (!dockBar.api.isCollapsed()) toggleSlide(false);
       });
 
+      // Hovering over a tab in the sidebar switches to that panel
       dockBar.element.addEventListener("mouseover", (e) => {
         const tabEl = (e.target as HTMLElement).closest(".dv-tab");
         if (!tabEl) return;
@@ -147,6 +159,7 @@ function App() {
         }
       });
 
+      // Show an "empty" message when the sidebar has no panels
       const contentEl = dockBar.element.querySelector(
         ".dv-content-container",
       ) as HTMLElement | null;
@@ -169,6 +182,7 @@ function App() {
       dockBar.api.onDidCollapsedChange(updateEmptyMsg);
     }
 
+    // --- Active group border highlighting ---
     let activeGroupEl: HTMLElement | null = null;
 
     function setGroupBorder(group: any) {
@@ -188,11 +202,13 @@ function App() {
       setGroupBorder(group);
     });
 
+    // Apply border to the initially active group
     const initialGroup = api.groups.find(
       (g) => g.api.isActive,
     );
     setGroupBorder(initialGroup);
 
+    // Focus panels on mouse enter (convenience for keyboard shortcuts)
     function addHoverFocus(group: any) {
       if (group.api.location.type === "edge") return;
       group.element.addEventListener("mouseenter", () => {
@@ -203,12 +219,14 @@ function App() {
     api.groups.forEach(addHoverFocus);
     api.onDidAddGroup(addHoverFocus);
 
+    // Fetch the agent's display name from the backend and update the tab title
     fetch("/config")
       .then((res) => res.json())
       .then((data) => api.getPanel("agent-avatar")?.setTitle(data.agent.name))
       .catch(() => {});
   };
 
+  // Prevent dropping panels into the center of a group that already has grid content
   const onWillDrop = (event: DockviewWillDropEvent) => {
     if (event.position === "center") {
       const targetType = event.group?.api.location.type;
@@ -224,6 +242,7 @@ function App() {
     }
   };
 
+  // Custom right-click context menu for panel tabs
   const getTabContextMenuItems = (
     params: GetTabContextMenuItemsParams,
   ): (BuiltInContextMenuItem | { label: string; action: () => void })[] => {
@@ -237,12 +256,14 @@ function App() {
   return (
     <div className="relative w-full h-full overflow-hidden">
       <div className="relative w-full h-full flex" style={{ zIndex: 1 }}>
+        {/* Left-side auto-hiding taskbar */}
         <div
           ref={taskbarRef}
           className={`${taskbarCollapsed ? 'w-9' : 'w-40'} shrink-0 transition-[width] duration-200`}
         >
           <TaskBar collapsed={taskbarCollapsed} onToggle={() => setTaskbarCollapsed(c => !c)} />
         </div>
+        {/* Main content area with animated NN background + Dockview panels */}
         <div className="flex-1 min-w-0 relative rounded-l-2xl overflow-hidden">
           <NeuralNetworkBackground />
           <DockviewReact

@@ -1,6 +1,8 @@
 import type { IDockviewPanelProps } from "dockview";
 import { useAgentAvatar } from "../agent-avatar/useAgentAvatar";
 
+// Displays the animated agent avatar — supports idle motion cycles,
+// mouse-press bounce, and a "getting close" zoom-in transition
 export function AgentAvatarPanel(_props: IDockviewPanelProps) {
   const {
     gettingCloseRef,
@@ -18,6 +20,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
 
   return (
     <div className="flex items-center justify-center h-full select-none p-4 overflow-hidden">
+      {/* Outer div handles the "getting close" zoom/perspective transform */}
       <div
         ref={gettingCloseRef}
         className="w-full h-full flex items-center justify-center"
@@ -26,6 +29,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
           transition: `transform ${gettingCloseDuration}s ${gettingCloseTiming}`,
         }}
       >
+        {/* The avatar image itself — idle motion, bounce, and mouse interaction transforms */}
         <img
           ref={imgRef}
           src="/agent-image"

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
+# Start Nnoel with Docker Compose — pulls the prebuilt image (docker-compose.yml)
 set -e
 
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Check that Docker is installed
 if ! command -v docker &>/dev/null; then
   echo -e "${RED}Error: Docker is not installed.${NC}"
   echo ""
@@ -30,6 +32,7 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
+# Check that the Docker daemon is running and accessible
 if ! docker info &>/dev/null; then
   echo -e "${RED}Error: Cannot connect to Docker daemon.${NC}"
   echo ""
@@ -42,6 +45,7 @@ if ! docker info &>/dev/null; then
   exit 1
 fi
 
+# Detect Docker Compose v2 (plugin) vs v1 (standalone binary)
 if docker compose version &>/dev/null; then
   COMPOSE="docker compose"
 elif command -v docker-compose &>/dev/null; then

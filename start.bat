@@ -1,6 +1,8 @@
 @echo off
+:: Start Nnoel with Docker Compose (Windows equivalent of start.sh)
 setlocal enabledelayedexpansion
 
+:: Check Docker is installed
 where docker >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo Error: Docker is not installed.
@@ -14,6 +16,7 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+:: Check Docker daemon is running
 docker info >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo Error: Cannot connect to Docker daemon.
@@ -25,6 +28,7 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+:: Check Docker Compose is available
 docker compose version >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo Error: Docker Compose not found.

@@ -128,6 +128,7 @@ export function useChat() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
+      // Read the streaming response chunk by chunk and update the message list
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -135,6 +136,8 @@ export function useChat() {
         const chunk = decoder.decode(value, { stream: true });
         fullReply += chunk;
 
+        // Update the last message in-place if it's already an assistant message,
+        // otherwise append a new one (first chunk received)
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant") {
@@ -144,6 +147,7 @@ export function useChat() {
         });
       }
     } catch (err) {
+      // Don't show an error if the user manually aborted the stream
       if (abortControllerRef.current?.signal.aborted) return;
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [
