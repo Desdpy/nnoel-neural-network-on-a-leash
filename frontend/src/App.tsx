@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DockviewReact, themeGithubDarkSpaced } from "dockview";
 import type {
   DockviewTheme,
@@ -9,22 +10,26 @@ import type {
 import { ChatPanel } from "./components/ChatPanel";
 import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
+import { TaskBar } from "./components/TaskBar";
 
 const theme: DockviewTheme = {
   ...themeGithubDarkSpaced,
-  // gap: 8,
 };
 
 const SIDEBAR_WIDTH = 400;
 
 const components = {
   chatPanel: ChatPanel,
-  agentAvatarPanel: AgentAvatarPanel
+  agentAvatarPanel: AgentAvatarPanel,
 };
 
 function App() {
+  const [api, setApi] = useState<DockviewReadyEvent["api"]>();
+  const [activePanel, setActivePanel] = useState<string>();
+
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api;
+    setApi(api);
 
     api.onWillShowOverlay((event) => {
       if (event.group?.api.location.type !== "grid") return;
@@ -135,6 +140,10 @@ function App() {
       dockBar.api.onDidCollapsedChange(updateEmptyMsg);
     }
 
+    api.onDidActivePanelChange((panel) => {
+      setActivePanel(panel?.id);
+    });
+
     fetch("/config")
       .then((res) => res.json())
       .then((data) => api.getPanel("agent-avatar")?.setTitle(data.agent.name))
@@ -169,14 +178,21 @@ function App() {
   return (
     <div className="relative w-full h-full overflow-hidden">
       <NeuralNetworkBackground />
-      <div className="relative w-full h-full" style={{ zIndex: 1 }}>
-        <DockviewReact
-          theme={theme}
-          components={components}
-          onReady={onReady}
-          onWillDrop={onWillDrop}
-          getTabContextMenuItems={getTabContextMenuItems}
-        />
+      <div className="relative w-full h-full flex" style={{ zIndex: 1 }}>
+        <div className="pl-[10px] py-[10px] shrink-0">
+          <div className="w-[52px] h-full">
+            <TaskBar api={api} activePanel={activePanel} />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <DockviewReact
+            theme={theme}
+            components={components}
+            onReady={onReady}
+            onWillDrop={onWillDrop}
+            getTabContextMenuItems={getTabContextMenuItems}
+          />
+        </div>
       </div>
     </div>
   );
