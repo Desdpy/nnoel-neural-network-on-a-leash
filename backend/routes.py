@@ -76,6 +76,22 @@ def ping():
         raise HTTPException(status_code=503, detail={"status": "error", "llama": False})
 
 
+def _build_system_message(rag_context: str | None = None) -> str:
+    """Build the system message, optionally wrapping RAG context with delimiters."""
+    if not AGENT_SYSTEM_PROMPT:
+        return ""
+    if rag_context:
+        return f"""{AGENT_SYSTEM_PROMPT}
+
+Use the following context to help answer:
+
+===
+CONTEXT:
+{rag_context}
+==="""
+    return AGENT_SYSTEM_PROMPT
+
+
 @router.post("/chat")
 def chat(message: str = Body(..., embed=True)):
     """
@@ -92,9 +108,10 @@ def chat(message: str = Body(..., embed=True)):
         history = _load_messages()
 
         # 2. Prepend the system prompt if one is configured
+        system_msg = _build_system_message()
         llm_messages = (
-            [{"role": "system", "content": AGENT_SYSTEM_PROMPT}] + history
-            if AGENT_SYSTEM_PROMPT
+            [{"role": "system", "content": system_msg}] + history
+            if system_msg
             else history
         )
 

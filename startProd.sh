@@ -32,8 +32,8 @@ download_if_missing() {
     fi
 }
 
-download_if_missing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" "$MAIN_MODEL"
-download_if_missing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-BF16.gguf" "$MMPROJ_MODEL"
+download_if_missing "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf" "$MAIN_MODEL"
+download_if_missing "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-BF16.gguf" "$MMPROJ_MODEL"
 
 # Run the FastAPI server
 python3 backend/server.py
