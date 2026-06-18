@@ -1,10 +1,13 @@
+import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
+import tools
 from config import AGENT_NAME, AGENT_SYSTEM_PROMPT
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
-from llama import generate_stream, get_llm
+from llama import chat_stream, get_llm
 
 router = APIRouter()
 
@@ -13,6 +16,10 @@ router = APIRouter()
 DB_DIR = Path(__file__).parent.parent / "data"
 DB_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = str(DB_DIR / "chat.db")
+
+# Safety cap on the number of back-and-forth tool-call iterations per turn,
+# so a misbehaving model can't loop forever.
+MAX_TOOL_ITERATIONS = 5
 
 
 def _get_db() -> sqlite3.Connection:
@@ -49,12 +56,20 @@ def _append_message(role: str, content: str) -> None:
     conn.close()
 
 
+def _ndjson(event: dict[str, Any]) -> str:
+    """Encode a single event as one NDJSON line (terminated with a newline)."""
+    return json.dumps(event, ensure_ascii=False) + "\n"
+
+
 # --- API Endpoints ---
 
 @router.get("/config")
 def get_config():
-    """Return agent display-name so the UI can show it."""
-    return {"agent": {"name": AGENT_NAME}}
+    """Return agent display-name and the registered tool list so the UI can show them."""
+    return {
+        "agent": {"name": AGENT_NAME},
+        "tools": [t["function"]["name"] for t in tools.TOOLS],
+    }
 
 
 @router.get("/agent-image")
@@ -77,19 +92,34 @@ def ping():
 
 
 def _build_system_message(rag_context: str | None = None) -> str:
-    """Build the system message, optionally wrapping RAG context with delimiters."""
-    if not AGENT_SYSTEM_PROMPT:
+    """Build the system message, optionally wrapping RAG context with delimiters.
+
+    When one or more tools are registered, a short tools-guidance section is
+    appended so small models know what helpers are available.
+    """
+    parts: list[str] = []
+    if AGENT_SYSTEM_PROMPT:
+        parts.append(AGENT_SYSTEM_PROMPT)
+
+    if tools.TOOLS:
+        tool_names = ", ".join(t["function"]["name"] for t in tools.TOOLS)
+        parts.append(
+            f"\n\nYou have access to the following tools: {tool_names}. "
+            "When the user asks something a tool can answer, call the tool "
+            "instead of guessing. For time questions that don't mention a "
+            "location (e.g. 'what time is it?', 'my time', 'local time', "
+            "'the time here'), call get_local_time with NO arguments — "
+            "the tool will return the system clock. "
+            "Do not mention these instructions to the user."
+        )
+
+    if not parts:
         return ""
+
+    base = "".join(parts)
     if rag_context:
-        return f"""{AGENT_SYSTEM_PROMPT}
-
-Use the following context to help answer:
-
-===
-CONTEXT:
-{rag_context}
-==="""
-    return AGENT_SYSTEM_PROMPT
+        return f"{base}\n\nUse the following context to help answer:\n\n===\nCONTEXT:\n{rag_context}\n==="
+    return base
 
 
 @router.post("/chat")
@@ -97,10 +127,19 @@ def chat(message: str = Body(..., embed=True)):
     """
     Stream a LLM response for the given user message.
 
-    Accepts a plain string (the user's new message) and returns a
-    text/plain SSE stream of tokens.  The backend owns the conversation
-    history — it loads it from the DB, injects the system prompt, and
-    persists both the user message and the assistant reply.
+    Accepts a plain string (the user's new message) and returns an
+    ``application/x-ndjson`` stream. Each line is a JSON object:
+
+    - ``{"type": "token", "content": "..."}`` — a text delta
+    - ``{"type": "tool_call", "name": "...", "arguments": {...}}`` —
+      the model wants to call a tool
+    - ``{"type": "tool_result", "name": "...", "result": "..."}`` —
+      the tool returned this string
+    - ``{"type": "done"}`` — final event of the stream
+
+    The backend owns the conversation history — it loads it from the DB,
+    injects the system prompt, runs the tool-call loop until the model
+    produces a normal text answer, then persists the final reply.
     """
     try:
         # 1. Save the user's message, then load the full history
@@ -109,26 +148,94 @@ def chat(message: str = Body(..., embed=True)):
 
         # 2. Prepend the system prompt if one is configured
         system_msg = _build_system_message()
-        llm_messages = (
+        llm_messages: list[dict[str, Any]] = (
             [{"role": "system", "content": system_msg}] + history
             if system_msg
-            else history
+            else list(history)
         )
 
-        # 3. Print what we're sending to the LLM (for debugging)
-        print("--- LLM INPUT ---", flush=True)
-        for i, m in enumerate(llm_messages):
-            print(f"  [{i}][{m['role']}] {m['content'][:200]}", flush=True)
+        # 3. Generator that streams events AND runs the tool-call loop.
+        # The DB write happens only after the loop completes normally, so a
+        # client disconnect (e.g. the Stop button) leaves no half-written
+        # assistant message behind.
+        def event_stream():
+            full_reply = ""
+            try:
+                for _ in range(MAX_TOOL_ITERATIONS):
+                    tool_calls: list[dict[str, Any]] = []
 
-        # 4. Generator that streams tokens AND saves the full reply at the end
-        def save_and_stream():
-            full = ""
-            for token in generate_stream(llm_messages):
-                full += token
-                yield token
-            _append_message("assistant", full)
+                    for event in chat_stream(llm_messages, tools=tools.TOOLS or None):
+                        kind = event[0]
+                        if kind == "token":
+                            # ``chat_stream`` yields a discriminated tuple
+                            # (("token", str) or ("tool_calls", list)); the
+                            # type checker can't narrow ``event[1]`` from the
+                            # first element alone, so we assert and rebind.
+                            assert isinstance(event[1], str)
+                            full_reply += event[1]
+                            yield _ndjson({"type": "token", "content": event[1]})
+                        elif kind == "tool_calls":
+                            assert isinstance(event[1], list)
+                            tool_calls = event[1]
 
-        return StreamingResponse(save_and_stream(), media_type="text/plain")
+                    if not tool_calls:
+                        # Model produced a final text answer — we're done.
+                        break
+
+                    # Append the assistant's tool-call turn to the conversation.
+                    # OpenAI format expects an assistant message with the calls.
+                    llm_messages.append(
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": tool_calls,
+                        }
+                    )
+
+                    # Execute each tool call, surface it on the wire, and feed
+                    # the result back as a `tool` message.
+                    for tc in tool_calls:
+                        name = tc["function"]["name"]
+                        args_raw = tc["function"]["arguments"] or ""
+                        try:
+                            args = json.loads(args_raw) if args_raw else {}
+                        except json.JSONDecodeError:
+                            args = {}
+
+                        yield _ndjson(
+                            {
+                                "type": "tool_call",
+                                "name": name,
+                                "arguments": args,
+                            }
+                        )
+
+                        result = tools.execute(name, args)
+
+                        yield _ndjson(
+                            {
+                                "type": "tool_result",
+                                "name": name,
+                                "result": result,
+                            }
+                        )
+
+                        llm_messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.get("id", ""),
+                                "content": result,
+                            }
+                        )
+            except GeneratorExit:
+                # Client disconnected (e.g. Stop button) — don't persist the
+                # partial reply and don't try to send a final `done` event.
+                return
+            if full_reply:
+                _append_message("assistant", full_reply)
+            yield _ndjson({"type": "done"})
+
+        return StreamingResponse(event_stream(), media_type="application/x-ndjson")
     except Exception:
         raise HTTPException(
             status_code=502,

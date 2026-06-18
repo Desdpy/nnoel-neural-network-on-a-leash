@@ -99,5 +99,65 @@ docker compose -f docker-compose.prod.yml up --build
 
 Open the web UI at `http://{host}:{port}` (see `config.toml`).
 
+## Adding tools
+
+Nnoel can call external tools through the OpenAI-compatible function-calling interface. New tools are added as Python modules under `backend/tools/` and registered in the package's `__init__.py`.
+
+### 1. Create a tool module
+
+Each tool module must export two things:
+
+- `SCHEMA` — a dict in OpenAI function-calling format describing the tool's name, description, and parameters.
+- `run(**kwargs)` — a callable that executes the tool and returns a string result.
+
+Use `backend/tools/time_server.py` as a template:
+
+```python
+from datetime import datetime
+from typing import Any
+
+SCHEMA: dict[str, Any] = {
+    "name": "get_local_time",
+    "description": "Get the current local time. Optionally specify a IANA timezone.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "timezone": {
+                "type": "string",
+                "description": "IANA timezone name (e.g. 'America/New_York').",
+                "default": "local",
+            },
+        },
+        "additionalProperties": False,
+    },
+}
+
+
+def run(timezone: str = "local") -> str:
+    if timezone == "local":
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ...
+```
+
+### 2. Register the tool
+
+Import your new module and add it to both the `TOOLS` list and the `HANDLERS` dict in `backend/tools/__init__.py`:
+
+```python
+from . import time_server, my_new_tool
+
+TOOLS: list[dict[str, Any]] = [
+    {"type": "function", "function": time_server.SCHEMA},
+    {"type": "function", "function": my_new_tool.SCHEMA},
+]
+
+HANDLERS: dict[str, Any] = {
+    time_server.SCHEMA["name"]: time_server.run,
+    my_new_tool.SCHEMA["name"]: my_new_tool.run,
+}
+```
+
+Restart the backend and the LLM will be able to call your tool automatically.
+
 ## References
 - Inspired by [OpenClaw](https://github.com/openclaw/openclaw)

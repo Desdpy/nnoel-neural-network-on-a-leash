@@ -1,10 +1,22 @@
 import { useEffect } from "react";
-import { Send, Square } from "lucide-react";
+import { Send, Square, Wrench, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChat } from "../useChat";
 import type { IDockviewPanelProps } from "dockview";
 import ReactMarkdown from "react-markdown";
+import type { Message } from "../types";
+
+// Markdown components shared by every assistant-style message (assistant text,
+// tool calls, tool results). Keeps the rendering rules in one place.
+import type { ReactNode } from "react";
+
+const markdownComponents = {
+  p: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+  ul: ({ children }: { children?: ReactNode }) => <ul className="list-disc pl-5 my-1">{children}</ul>,
+  ol: ({ children }: { children?: ReactNode }) => <ol className="list-decimal pl-5 my-1">{children}</ol>,
+  li: ({ children }: { children?: ReactNode }) => <li className="my-0.5">{children}</li>,
+};
 
 // The main chat panel: shows a scrollable message list with a textarea input at the bottom
 export function ChatPanel({ api }: IDockviewPanelProps) {
@@ -47,33 +59,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
         </div>
       ) : (
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3 scrollbar-thin [scrollbar-color:var(--border)_transparent]">
-        {/* Render each message — user messages right-aligned, assistant left-aligned */}
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap ${
-              msg.role === "user"
-                ? "self-end bg-surface-deep rounded-br-sm"
-                : "self-start bg-surface-raised rounded-bl-sm"
-            }`}
-          >
-            {/* Render message body as Markdown — wrap <p> in <span> to avoid extra block padding */}
-            <ReactMarkdown
-              components={{
-                p: ({ children }) => <span>{children}</span>,
-                ul: ({ children }) => (
-                  <ul className="list-disc pl-5 my-1">{children}</ul>
-                ),
-                ol: ({ children }) => (
-                  <ol className="list-decimal pl-5 my-1">{children}</ol>
-                ),
-                li: ({ children }) => <li className="my-0.5">{children}</li>,
-              }}
-            >
-              {msg.content}
-            </ReactMarkdown>
-          </div>
-        ))}
+        {messages.map((msg, index) => renderMessage(msg, index))}
 
         {/* Animated "typing" dots while the LLM is generating a response */}
         {status === "responding" && (
@@ -134,4 +120,65 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
       </footer>
     </div>
   );
+}
+
+// Render a single message bubble. User/assistant get the standard treatment;
+// tool_call/tool_result get a compact, monospace card that makes the
+// intermediate steps obvious in the conversation history.
+function renderMessage(msg: Message, index: number) {
+  if (msg.role === "user") {
+    return (
+      <div
+        key={index}
+        className="max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap self-end bg-surface-deep rounded-br-sm"
+      >
+        <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  if (msg.role === "assistant") {
+    return (
+      <div
+        key={index}
+        className="max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap self-start bg-surface-raised rounded-bl-sm"
+      >
+        <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  if (msg.role === "tool_call") {
+    const args = msg.arguments
+      ? Object.entries(msg.arguments)
+          .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+          .join(", ")
+      : "";
+    return (
+      <div
+        key={index}
+        className="self-start max-w-[75%] text-xs text-muted-fg bg-surface-raised/60 border border-border rounded-2xl rounded-bl-sm px-3 py-2 font-mono flex items-start gap-2"
+      >
+        <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span className="wrap-break-word">
+          <span className="text-text-base">{msg.name}</span>
+          {args ? <span className="text-muted-fg">({args})</span> : null}
+        </span>
+      </div>
+    );
+  }
+
+  if (msg.role === "tool_result") {
+    return (
+      <div
+        key={index}
+        className="self-start max-w-[75%] text-xs text-muted-fg bg-surface-raised/40 border border-border rounded-2xl rounded-bl-sm px-3 py-2 font-mono flex items-start gap-2"
+      >
+        <ArrowRight className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span className="wrap-break-word whitespace-pre-wrap">{msg.content}</span>
+      </div>
+    );
+  }
+
+  return null;
 }

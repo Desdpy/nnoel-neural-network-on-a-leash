@@ -1,6 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Message, ConnectionStatus } from "./types";
 
+interface StreamEvent {
+  type: "token" | "tool_call" | "tool_result" | "done" | string;
+  content?: string;
+  name?: string;
+  arguments?: Record<string, unknown>;
+  result?: string;
+}
+
 export function useChat() {
   // Top‑level state shared across chat features: the message list, the current
   // textarea value, connection status, loading flag, and the refs that tie into
@@ -97,8 +105,41 @@ export function useChat() {
     abortControllerRef.current?.abort();
   };
 
-  // Send the user's message, then stream the assistant's reply token by token
-  // from a POST /chat endpoint, updating the message list on each chunk.
+  // Apply one parsed stream event to the message list.
+  // - `token` extends the trailing assistant message in-place, or starts one
+  // - `tool_call` / `tool_result` append dedicated entries
+  const applyEvent = (event: StreamEvent) => {
+    setMessages((prev) => {
+      if (event.type === "token" && typeof event.content === "string") {
+        const last = prev[prev.length - 1];
+        if (last?.role === "assistant") {
+          return [...prev.slice(0, -1), { ...last, content: last.content + event.content }];
+        }
+        return [...prev, { role: "assistant", content: event.content }];
+      }
+      if (event.type === "tool_call") {
+        return [
+          ...prev,
+          {
+            role: "tool_call",
+            content: event.name ?? "",
+            name: event.name,
+            arguments: event.arguments,
+          },
+        ];
+      }
+      if (event.type === "tool_result") {
+        return [
+          ...prev,
+          { role: "tool_result", content: event.result ?? "", name: event.name },
+        ];
+      }
+      return prev;
+    });
+  };
+
+  // Send the user's message, then stream the assistant's reply event by event
+  // from a POST /chat endpoint (NDJSON), updating the message list for each.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = inputValue.trim();
@@ -110,7 +151,6 @@ export function useChat() {
     setInputValue("");
     setStatus("responding");
 
-    let fullReply = "";
     abortControllerRef.current = new AbortController();
 
     try {
@@ -127,24 +167,28 @@ export function useChat() {
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
-      // Read the streaming response chunk by chunk and update the message list
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        fullReply += chunk;
-
-        // Update the last message in-place if it's already an assistant message,
-        // otherwise append a new one (first chunk received)
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "assistant") {
-            return [...prev.slice(0, -1), { ...last, content: fullReply }];
+        buffer += decoder.decode(value, { stream: true });
+        // Process every complete newline-delimited JSON line. Anything left in
+        // the buffer is the start of the next line and stays for the next read.
+        let nl = buffer.indexOf("\n");
+        while (nl !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) {
+            try {
+              applyEvent(JSON.parse(line) as StreamEvent);
+            } catch {
+              // Ignore malformed lines; the next one is likely valid.
+            }
           }
-          return [...prev, { role: "assistant", content: fullReply }];
-        });
+          nl = buffer.indexOf("\n");
+        }
       }
     } catch (err) {
       // Don't show an error if the user manually aborted the stream
