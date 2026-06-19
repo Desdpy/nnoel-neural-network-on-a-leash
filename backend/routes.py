@@ -38,10 +38,10 @@ def _get_db() -> sqlite3.Connection:
 
 
 def _load_messages() -> list[dict]:
-    """Load the most recent 50 messages in chronological order."""
+    """Load the most recent 10 messages in chronological order."""
     conn = _get_db()
     rows = conn.execute(
-        "SELECT role, content FROM messages ORDER BY id DESC LIMIT 50"
+        "SELECT role, content FROM messages ORDER BY id DESC LIMIT 10"
     ).fetchall()
     conn.close()
     # Reverse so oldest message is first (chronological order)

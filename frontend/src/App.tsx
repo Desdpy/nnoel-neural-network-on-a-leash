@@ -63,8 +63,20 @@ function App() {
     });
   };
 
-  // Auto-hide/show the taskbar based on mouse position
+  // Auto-hide/show the taskbar based on mouse position. Expand is
+  // delayed by 100ms (matching the dock bar) so a quick cursor pass
+  // doesn't flash the sidebar open; collapse stays instant.
   useEffect(() => {
+    let wasInside = false;
+    let expandTimer: number | undefined;
+
+    const cancelPending = () => {
+      if (expandTimer !== undefined) {
+        clearTimeout(expandTimer);
+        expandTimer = undefined;
+      }
+    };
+
     function onMove(e: MouseEvent) {
       const el = taskbarRef.current;
       if (!el) return;
@@ -75,20 +87,30 @@ function App() {
         e.clientY >= rect.top &&
         e.clientY <= rect.bottom;
 
-      setTaskbarCollapsed((prev) => {
-        if (inside && prev) return false;
-        if (!inside && !prev) return true;
-        return prev;
-      });
+      if (inside && !wasInside) {
+        // Cursor just entered — schedule a delayed expand.
+        cancelPending();
+        expandTimer = window.setTimeout(() => {
+          setTaskbarCollapsed(false);
+          expandTimer = undefined;
+        }, 100);
+      } else if (!inside && wasInside) {
+        // Cursor just left — cancel any pending expand and collapse now.
+        cancelPending();
+        setTaskbarCollapsed(true);
+      }
+      wasInside = inside;
     }
 
     function onLeave() {
+      cancelPending();
       setTaskbarCollapsed(true);
     }
 
     document.addEventListener("mousemove", onMove, { passive: true });
     document.addEventListener("mouseleave", onLeave, { passive: true });
     return () => {
+      cancelPending();
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseleave", onLeave);
     };
@@ -171,13 +193,47 @@ function App() {
         }, 200);
       };
 
-      // Hover to expand / auto-collapse on leave
+      // Hover to expand / auto-collapse on leave. The expand is delayed
+      // by 200ms so a quick cursor pass doesn't flash the sidebar open.
+      let expandTimer: number | undefined;
       dockBar.element.addEventListener("mouseenter", () => {
-        if (dockBar.api.isCollapsed()) toggleSlide(true);
+        if (!dockBar.api.isCollapsed()) return;
+        expandTimer = window.setTimeout(() => toggleSlide(true), 100);
       });
       dockBar.element.addEventListener("mouseleave", () => {
+        if (expandTimer !== undefined) {
+          clearTimeout(expandTimer);
+          expandTimer = undefined;
+          return;
+        }
         if (!dockBar.api.isCollapsed()) toggleSlide(false);
       });
+
+      // The element-level mouseleave never fires when the cursor exits
+      // the browser window entirely (e.g. into the OS chrome on the
+      // right edge), so the sidebar would stay expanded. Track the
+      // cursor's position and collapse whenever it's outside the dock
+      // bar's hit area — that covers both viewport-exit and the OS
+      // chrome. Also collapse when the window loses focus.
+      const collapseIfOpen = () => {
+        if (!dockBar.api.isCollapsed()) toggleSlide(false);
+      };
+      const onDocMove = (e: MouseEvent) => {
+        if (dockBar.api.isCollapsed()) return;
+        const rect = dockBar.element.getBoundingClientRect();
+        // Account for the 44px-wide collapsed handle that sticks out
+        // even when the sidebar is expanded.
+        const handle = 44;
+        const inside =
+          e.clientX >= rect.left - handle &&
+          e.clientX <= rect.right &&
+          e.clientY >= rect.top &&
+          e.clientY <= rect.bottom;
+        if (!inside) collapseIfOpen();
+      };
+      document.addEventListener("mousemove", onDocMove, { passive: true });
+      document.addEventListener("mouseleave", collapseIfOpen, { passive: true });
+      window.addEventListener("blur", collapseIfOpen, { passive: true });
 
       // Hovering over a tab in the sidebar switches to that panel
       dockBar.element.addEventListener("mouseover", (e) => {
