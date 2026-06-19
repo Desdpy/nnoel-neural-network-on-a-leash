@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import { MessageSquare, Bot, Settings, ChevronRight, ChevronLeft } from "lucide-react";
+import { MessageSquare, Bot, Clock, Settings, ChevronRight, ChevronLeft } from "lucide-react";
 
 interface TaskBarProps {
   collapsed?: boolean;
   onToggle?: () => void;
+  onLaunchTime?: () => void;
 }
 
 // List of app shortcuts shown in the expanded taskbar
 const tasks = [
-  { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "agent", label: "Agent", icon: Bot },
-  { id: "settings", label: "Settings", icon: Settings },
+  { id: "time", label: "Time", icon: Clock, action: "launchTime" },
+  { id: "chat", label: "Chat", icon: MessageSquare, action: "noop" },
+  { id: "agent", label: "Agent", icon: Bot, action: "noop" },
+  { id: "settings", label: "Settings", icon: Settings, action: "noop" },
 ] as const;
 
 // Live clock hook — updates HH:MM:SS every second
@@ -42,8 +44,12 @@ function useClock() {
 }
 
 // A collapsible left sidebar showing app shortcuts and a live clock
-export function TaskBar({ collapsed, onToggle }: TaskBarProps) {
+export function TaskBar({ collapsed, onToggle, onLaunchTime }: TaskBarProps) {
   const { h, m, s } = useClock();
+
+  function runTaskAction(action: string) {
+    if (action === "launchTime") onLaunchTime?.();
+  }
 
   // Collapsed mode: just a thin vertical strip with a clock and expand arrow
   if (collapsed) {
@@ -84,10 +90,11 @@ export function TaskBar({ collapsed, onToggle }: TaskBarProps) {
       </div>
 
       <div className="flex flex-col gap-1 px-2">
-        {tasks.map(({ id, label, icon: Icon }) => (
+        {tasks.map(({ id, label, icon: Icon, action }) => (
           <button
             key={id}
             type="button"
+            onClick={() => runTaskAction(action)}
             className="flex items-center gap-3 px-2 py-2 rounded-lg text-muted-fg hover:bg-surface-raised hover:text-text-base transition-all active:scale-90 active:duration-75 cursor-pointer"
           >
             <Icon className="w-5 h-5 shrink-0" />

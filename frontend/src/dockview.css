@@ -14,7 +14,7 @@
 
 /* Group panels have a semi-transparent dark background */
 .dockview-theme-github-dark-spaced .dv-groupview {
-    background-color: rgba(22, 27, 34, 0.8) !important;
+    background-color: rgba(22, 27, 34, 0.9) !important;
 }
 
 /* Content areas inside groups are transparent (let the group background show) */

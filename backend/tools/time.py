@@ -43,19 +43,33 @@ SCHEMA: dict[str, Any] = {
 }
 
 
-def run(location: str = "local") -> str:
-    """Execute the get_local_time tool: return the current time for the given location."""
+def run(location: str = "local") -> Any:
+    """Execute the get_local_time tool: return the current time for the given location.
+
+    Returns a dict with the human-readable ``text`` (same string the LLM
+    used to see) plus the resolved IANA ``tz`` so the UI can keep the
+    seconds ticking locally instead of re-fetching every second.
+    """
     try:
         tz_name = _resolve_location(location)
     except ValueError as e:
-        return str(e)
+        return {"text": str(e), "tz": None}
 
     if tz_name == "local":
         now = datetime.now()
-        return now.strftime("%Y-%m-%d %H:%M:%S")
+        return {
+            "text": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "tz": None,
+        }
     try:
         tz = ZoneInfo(tz_name)
         now = datetime.now(tz)
-        return now.strftime("%Y-%m-%d %H:%M:%S %Z")
+        return {
+            "text": now.strftime("%Y-%m-%d %H:%M:%S %Z"),
+            "tz": tz_name,
+        }
     except Exception as e:
-        return f"Resolved to '{tz_name}' but the IANA database rejected it: {e}"
+        return {
+            "text": f"Resolved to '{tz_name}' but the IANA database rejected it: {e}",
+            "tz": None,
+        }

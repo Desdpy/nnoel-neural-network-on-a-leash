@@ -9,6 +9,7 @@ import type {
 } from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
 import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
+import { TimePanel } from "./components/TimePanel";
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 import { TaskBar } from "./components/TaskBar";
 
@@ -23,12 +24,44 @@ const SIDEBAR_WIDTH = 400;
 const components = {
   chatPanel: ChatPanel,
   agentAvatarPanel: AgentAvatarPanel,
+  timePanel: TimePanel,
 };
 
 function App() {
   // Track whether the left-side taskbar is collapsed (auto-hide on mouse leave)
   const [taskbarCollapsed, setTaskbarCollapsed] = useState(true);
   const taskbarRef = useRef<HTMLDivElement>(null);
+  // Holds the Dockview API once it is ready, so the TaskBar can open panels.
+  const apiRef = useRef<{
+    addPanel: (options: {
+      id: string;
+      component: string;
+      title: string;
+      position?: { direction: "right" | "left" | "above" | "below"; referencePanel: string };
+      floating?: true | { x?: number; y?: number; width?: number; height?: number };
+    }) => unknown;
+    getPanel: (id: string) =>
+      | { api: { setActive(): void; focus(): void } }
+      | undefined;
+  } | null>(null);
+
+  // Open (or focus) the Time tool panel as a floating dock on top of the grid.
+  const openTimePanel = () => {
+    const api = apiRef.current;
+    if (!api) return;
+    const existing = api.getPanel("time");
+    if (existing) {
+      existing.api.setActive();
+      existing.api.focus();
+      return;
+    }
+    api.addPanel({
+      id: "time",
+      component: "timePanel",
+      title: "Time",
+      floating: { width: 360, height: 360 },
+    });
+  };
 
   // Auto-hide/show the taskbar based on mouse position
   useEffect(() => {
@@ -64,6 +97,7 @@ function App() {
   // Called once the Dockview layout is ready — set up panels and interactivity
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api;
+    apiRef.current = api as unknown as typeof apiRef.current;
 
     // Prevent dropping tabs into the center of a grid group (only side-docking allowed)
     api.onWillShowOverlay((event) => {
@@ -261,7 +295,11 @@ function App() {
           ref={taskbarRef}
           className={`${taskbarCollapsed ? 'w-9' : 'w-40'} shrink-0 transition-[width] duration-200`}
         >
-          <TaskBar collapsed={taskbarCollapsed} onToggle={() => setTaskbarCollapsed(c => !c)} />
+          <TaskBar
+            collapsed={taskbarCollapsed}
+            onToggle={() => setTaskbarCollapsed(c => !c)}
+            onLaunchTime={openTimePanel}
+          />
         </div>
         {/* Main content area with animated NN background + Dockview panels */}
         <div className="flex-1 min-w-0 relative rounded-l-2xl overflow-hidden">

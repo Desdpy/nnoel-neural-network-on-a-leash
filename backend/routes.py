@@ -72,6 +72,21 @@ def get_config():
     }
 
 
+@router.get("/tools/timezones/locations")
+def list_location_suggestions():
+    """List the location strings the get_local_time tool can resolve.
+
+    Used by the Time panel's autocomplete to surface suggestions while the
+    user is typing. Each entry is a single location string (country,
+    continent, city, or alias) the :func:`tools.timezones.resolve` helper
+    understands. The list is returned sorted (case-insensitive) so the
+    frontend can render it without a second pass.
+    """
+    from tools.timezones import _TIMEZONE_MAP  # noqa: PLC0415
+
+    return {"locations": sorted(_TIMEZONE_MAP.keys(), key=str.lower)}
+
+
 @router.get("/agent-image")
 def agent_image():
     """Serve the agent's avatar PNG.  Returns 404 if the file is missing."""
@@ -211,12 +226,20 @@ def chat(message: str = Body(..., embed=True)):
                         )
 
                         result = tools.execute(name, args)
+                        # Some tools (e.g. get_local_time) return a structured
+                        # dict with a ``text`` field for the LLM and extra
+                        # metadata for the UI. Collapse to the text so the
+                        # chat-completion API still sees a plain string.
+                        if isinstance(result, dict) and "text" in result:
+                            llm_text: str = result["text"]
+                        else:
+                            llm_text = str(result)
 
                         yield _ndjson(
                             {
                                 "type": "tool_result",
                                 "name": name,
-                                "result": result,
+                                "result": llm_text,
                             }
                         )
 
@@ -224,7 +247,7 @@ def chat(message: str = Body(..., embed=True)):
                             {
                                 "role": "tool",
                                 "tool_call_id": tc.get("id", ""),
-                                "content": result,
+                                "content": llm_text,
                             }
                         )
             except GeneratorExit:
@@ -250,3 +273,21 @@ def chat(message: str = Body(..., embed=True)):
 def get_chat():
     """Load the saved messages."""
     return {"messages": _load_messages()}
+
+
+@router.post("/tools/{name}")
+def run_tool(name: str, arguments: dict[str, Any] = Body(default={})):
+    """Run a registered tool by name with the given arguments and return its result.
+
+    Exposes the same tool registry the LLM uses, so the UI can let users
+    invoke tools directly (e.g. the Time panel in the dock). Tools that
+    return a dict with a ``text`` field are unwrapped to that text and
+    the extra keys are surfaced under ``extra`` so the UI can keep the
+    seconds ticking locally without re-fetching.
+    """
+    result = tools.execute(name, arguments or {})
+    if isinstance(result, dict) and "text" in result:
+        text: Any = result["text"]
+        extra = {k: v for k, v in result.items() if k != "text"}
+        return {"result": text, "extra": extra}
+    return {"result": result, "extra": {}}

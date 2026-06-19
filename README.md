@@ -110,7 +110,7 @@ Each tool module must export two things:
 - `SCHEMA` — a dict in OpenAI function-calling format describing the tool's name, description, and parameters.
 - `run(**kwargs)` — a callable that executes the tool and returns a string result.
 
-Use `backend/tools/time_server.py` as a template:
+Use `backend/tools/time.py` as a template:
 
 ```python
 from datetime import datetime
@@ -144,15 +144,15 @@ def run(timezone: str = "local") -> str:
 Import your new module and add it to both the `TOOLS` list and the `HANDLERS` dict in `backend/tools/__init__.py`:
 
 ```python
-from . import time_server, my_new_tool
+from . import time, my_new_tool
 
 TOOLS: list[dict[str, Any]] = [
-    {"type": "function", "function": time_server.SCHEMA},
+    {"type": "function", "function": time.SCHEMA},
     {"type": "function", "function": my_new_tool.SCHEMA},
 ]
 
 HANDLERS: dict[str, Any] = {
-    time_server.SCHEMA["name"]: time_server.run,
+    time.SCHEMA["name"]: time.run,
     my_new_tool.SCHEMA["name"]: my_new_tool.run,
 }
 ```
