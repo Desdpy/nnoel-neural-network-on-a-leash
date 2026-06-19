@@ -3,7 +3,10 @@ from typing import Any
 
 from zoneinfo import ZoneInfo
 
+from log import get_logger
 from .timezones import resolve as _resolve_location
+
+log = get_logger("tools.time")
 
 # OpenAI-compatible function schema — describes the tool to the LLM.
 # The model passes a single human-readable ``location`` string (country,
@@ -53,6 +56,7 @@ def run(location: str = "local") -> Any:
     try:
         tz_name = _resolve_location(location)
     except ValueError as e:
+        log.info("get_local_time: unknown location %r: %s", location, e)
         return {"text": str(e), "tz": None}
 
     if tz_name == "local":
@@ -69,6 +73,7 @@ def run(location: str = "local") -> Any:
             "tz": tz_name,
         }
     except Exception as e:
+        log.warning("ZoneInfo rejected %r: %s", tz_name, e)
         return {
             "text": f"Resolved to '{tz_name}' but the IANA database rejected it: {e}",
             "tz": None,

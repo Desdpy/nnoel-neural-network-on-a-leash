@@ -1,12 +1,87 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Clock, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
+import type { IDockviewPanelProps } from "dockview";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("TimePanel");
+
+// Scan-line overlay shown on panels opened as a side effect of an LLM
+// tool call. Two horizontal sweeps run during the 5s the panel is on
+// screen (matching the chat-driven auto-close), plus a faint pulse on
+// the border, so the user gets a clear "fresh from the model" cue.
+// Injected as a singleton <style> so keyframes aren't duplicated when
+// several scan overlays coexist.
+function ScanOverlay() {
+  useEffect(() => {
+    if (document.getElementById("nnoel-time-panel-scan-keyframes")) return;
+    const styleEl = document.createElement("style");
+    styleEl.id = "nnoel-time-panel-scan-keyframes";
+    styleEl.textContent = `
+      /* Animate the top property (parent-relative) rather than
+         transform: translateY, which would be relative to the line's
+         own 32px height and only move it by that much. The line's top
+         goes from -32px (off-screen above) to 100% (top edge at the
+         parent's bottom; the rest is clipped by overflow-hidden). With
+         animation-direction: alternate on the element, the line
+         bounces top->bottom->top continuously. No opacity fade
+         needed — the off-screen ends act as the natural fade. */
+      @keyframes nnoel-scan-bounce {
+        0%   { top: -32px; }
+        100% { top: 100%; }
+      }
+    `;
+    document.head.appendChild(styleEl);
+    return () => {
+      // Leave the keyframes in place if other scan overlays are still
+      // mounted; only clean up on the last unmount.
+      if (!document.querySelector("[data-nnoel-scan-overlay]")) {
+        styleEl.remove();
+      }
+    };
+  }, []);
+  return (
+    <div
+      data-nnoel-scan-overlay
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-10"
+    >
+      {/* One horizontal scan line that bounces top->bottom->top
+          continuously (alternate direction). The parent's
+          overflow-hidden handles the natural fade-in/out at the
+          edges — the line is fully off-screen above at top:-32px
+          and fully below at top:100%. */}
+      <div
+        className="absolute left-0 right-0 h-8"
+        style={{
+          top: 0,
+          background:
+            "linear-gradient(to bottom, transparent, rgba(34, 211, 238, 0.35), transparent)",
+          animation: "nnoel-scan-bounce 1.5s ease-in-out infinite alternate",
+        }}
+      />
+    </div>
+  );
+}
 
 interface TimeResult {
   text: string;
   // IANA timezone name (e.g. "Asia/Tokyo") or null for the host's local time.
   tz: string | null;
+}
+
+// Parameters this panel accepts from its creator / from
+// ``api.updateParameters`` calls. The chat uses these to seed the panel
+// when the LLM calls the get_local_time tool.
+export interface TimePanelParameters {
+  location?: string;
+  text?: string;
+  tz?: string | null;
+  // True when the panel was opened as a side effect of an LLM tool
+  // call (rather than directly from the taskbar). Triggers a scan
+  // animation overlay that runs for the panel's visible lifetime.
+  scan?: boolean;
 }
 
 // Matches a successful time string ("YYYY-MM-DD HH:MM:SS" or
@@ -52,19 +127,33 @@ function formatInZone(date: Date, tz: string | null) {
 
 // Direct-invocation panel for the get_local_time tool. Lets the user call
 // the tool without going through the LLM, returning the same result the
-// model would have produced.
-export function TimePanel() {
+// model would have produced. When opened from the chat (via a tool call),
+// ``api.getParameters()`` is pre-populated with the result and the panel
+// renders it immediately without a round-trip.
+export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParameters>) {
+  // Read the seed parameters synchronously so the very first render
+  // shows the right data — no empty-state flash before the effect runs.
+  const seed = params;
+
   // What the user has typed so far. Updates on every keystroke.
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(seed.location ?? "");
   // The location of the most recent *successful* tool call. Used as the
   // arg for the per-minute refetch so unsent keystrokes don't sneak in.
-  const [submitted, setSubmitted] = useState("");
-  const [result, setResult] = useState<TimeResult | null>(null);
+  const [submitted, setSubmitted] = useState(seed.location ?? "");
+  const [result, setResult] = useState<TimeResult | null>(
+    seed.text ? { text: seed.text, tz: seed.tz ?? null } : null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Ticks every second so the displayed seconds stay in sync with the
   // wall clock without hitting the backend.
   const [, setTick] = useState(0);
+
+  // Mirror of `submitted` so the per-minute refetch (which lives in a
+  // mount-only effect) can always read the latest value without needing
+  // to be torn down and recreated on every location change.
+  const submittedRef = useRef(submitted);
+  submittedRef.current = submitted;
 
   // Autocomplete state: full list fetched once on mount, the currently
   // highlighted suggestion index, and whether the dropdown is visible.
@@ -86,7 +175,9 @@ export function TimePanel() {
       setResult({ text: data.result, tz: data.extra?.tz ?? null });
       setSubmitted(loc);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      log.error("get_local_time request failed", e, { location: loc });
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -102,16 +193,20 @@ export function TimePanel() {
   // Populate the result on mount and refetch on every minute boundary so
   // the timezone-relative seconds stay aligned with the server's clock
   // (and pick up DST transitions). The effect runs once on mount — the
-  // user-typed input never triggers a refetch on its own.
+  // user-typed input never triggers a refetch on its own. If the panel
+  // was seeded with parameters (i.e. opened from a chat tool call),
+  // skip the initial fetch — we already have the result.
   useEffect(() => {
-    callTime("");
+    if (!result) {
+      callTime("");
+    }
     let timeoutId: number | undefined;
     function scheduleNext() {
       // Align to the top of the next minute so the displayed seconds
       // are always in sync with the server snapshot.
       const ms = 60_000 - (Date.now() % 60_000);
       timeoutId = window.setTimeout(() => {
-        callTime(submitted);
+        callTime(submittedRef.current);
         scheduleNext();
       }, ms);
     }
@@ -122,6 +217,23 @@ export function TimePanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // When the chat updates this panel's parameters (because the LLM
+  // called get_local_time again), reflect the new location and result
+  // in the visible state. The per-minute refetch will pick up the new
+  // ``submitted`` value on its next tick via ``submittedRef``.
+  useEffect(() => {
+    const disposable = api.onDidParametersChange((params) => {
+      const loc = params.location ?? "";
+      setInput(loc);
+      setSubmitted(loc);
+      if (params.text) {
+        setResult({ text: params.text, tz: params.tz ?? null });
+        setError(null);
+      }
+    });
+    return () => disposable.dispose();
+  }, [api]);
+
   // Fetch the full list of resolvable locations once, for the dropdown.
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +242,12 @@ export function TimePanel() {
       .then((data) => {
         if (!cancelled) setLocations(data.locations);
       })
-      .catch(() => {});
+      .catch((err) =>
+        log.warn(
+          "Failed to fetch location suggestions; dropdown will be empty",
+          err,
+        ),
+      );
     return () => {
       cancelled = true;
     };
@@ -273,16 +390,14 @@ export function TimePanel() {
   }
 
   return (
-    <div className="flex flex-col h-full text-text-base">
-      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
-        <div className="flex items-center gap-2 text-muted-fg text-sm">
-          <Clock className="w-4 h-4" />
-          <span>
-            Ask for the time in any country, continent, or city. Leave empty for
-            local time.
-          </span>
-        </div>
+    <div className="flex flex-col h-full text-text-base relative overflow-hidden">
+      {/* Scan-line overlay: only present on panels opened as a side
+          effect of an LLM tool call. Two horizontal sweeps run during
+          the 5s the panel is on screen, plus a faint pulse on the
+          border, so the user gets a clear "fresh from the model" cue. */}
+      {seed.scan && <ScanOverlay />}
 
+      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
         <form
           onSubmit={(e) => {
             e.preventDefault();

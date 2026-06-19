@@ -17,6 +17,9 @@ from config import (
 )
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import get_chat_completion_handler
+from log import get_logger
+
+log = get_logger("llama")
 
 
 def _gemma_args_to_json(s: str) -> str:
@@ -231,7 +234,12 @@ class _TextToolCallParser:
                 args_json = _gemma_args_to_json(args_raw)
                 try:
                     args = json.loads(args_json) if args_json.strip() else {}
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as err:
+                    log.warning(
+                        "Tool call %r had invalid JSON args, falling back to {}: %s",
+                        name,
+                        err,
+                    )
                     args = {}
                 yield ("tool_call", (name, args))
             else:

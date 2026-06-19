@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { Message, ConnectionStatus } from "./types";
+import { createLogger } from "./lib/logger";
+
+const log = createLogger("useChat");
+
+let _nextId = 0;
+const uid = () => `msg_${++_nextId}`;
 
 interface StreamEvent {
   type: "token" | "tool_call" | "tool_result" | "done" | string;
@@ -7,9 +13,24 @@ interface StreamEvent {
   name?: string;
   arguments?: Record<string, unknown>;
   result?: string;
+  extra?: Record<string, unknown>;
+  tool_call_id?: string;
 }
 
-export function useChat() {
+// Callbacks fired when the model invokes a tool. Tool steps are NOT added
+// to the message list — the host component is expected to react by opening
+// a dedicated panel for the tool.
+export interface UseChatCallbacks {
+  onToolCall?: (name: string, args: Record<string, unknown>) => void;
+  onToolResult?: (
+    name: string,
+    args: Record<string, unknown>,
+    result: string,
+    extra: Record<string, unknown>,
+  ) => void;
+}
+
+export function useChat(callbacks?: UseChatCallbacks) {
   // Top‑level state shared across chat features: the message list, the current
   // textarea value, connection status, loading flag, and the refs that tie into
   // the DOM (scroll container, textarea, and the abort controller for streaming).
@@ -48,8 +69,9 @@ export function useChat() {
           setFirstId(data.firstId ?? null);
           setHasMore(data.hasMore ?? false);
         }
-      } catch {
-        // offline — proceed empty
+      } catch (err) {
+        // Offline / server down — proceed with an empty conversation.
+        log.warn("Initial history load failed; starting with empty messages", err);
       }
       setLoading(false);
     };
@@ -68,7 +90,10 @@ export function useChat() {
       const res = await fetch(
         `/api/chat?before=${encodeURIComponent(String(firstId))}&limit=20`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        log.warn("loadMore got non-OK response", { status: res.status });
+        return;
+      }
       const data = (await res.json()) as {
         messages: Message[];
         hasMore: boolean;
@@ -82,6 +107,8 @@ export function useChat() {
       setMessages((prev) => [...fresh, ...prev]);
       setFirstId(data.firstId ?? null);
       setHasMore(data.hasMore ?? false);
+    } catch (err) {
+      log.warn("loadMore failed", err, { firstId });
     } finally {
       setLoadingMore(false);
     }
@@ -136,8 +163,12 @@ export function useChat() {
         const response = await fetch("/ping");
         if (response.ok) {
           setStatus("connected");
+        } else {
+          log.warn("Health check returned non-OK status", { status: response.status });
+          setStatus("disconnected");
         }
-      } catch {
+      } catch (err) {
+        log.warn("Health check failed; marking connection as disconnected", err);
         setStatus("disconnected");
       }
     };
@@ -167,34 +198,76 @@ export function useChat() {
     abortControllerRef.current?.abort();
   };
 
+  // Latest callbacks, kept in a ref so we can invoke them from the
+  // streaming loop without re-creating ``applyEvent`` on every parent
+  // render.
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
+
   // Apply one parsed stream event to the message list.
   // - `token` extends the trailing assistant message in-place, or starts one
-  // - `tool_call` / `tool_result` append dedicated entries
+  // - `tool_call` / `tool_result` append dedicated entries to the
+  //   message list AND fire the host component's callbacks (which open
+  //   a dedicated panel for the tool in parallel)
   const applyEvent = (event: StreamEvent) => {
+    if (event.type === "tool_call" && event.name) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: "tool_call",
+          content: "",
+          name: event.name,
+          arguments: event.arguments,
+          tool_call_id: event.tool_call_id,
+        },
+      ]);
+      try {
+        callbacksRef.current?.onToolCall?.(event.name, event.arguments ?? {});
+      } catch (err) {
+        // A host-side error in the callback must not block message state.
+        log.error("onToolCall callback threw", err, {
+          tool: event.name,
+          arguments: event.arguments,
+        });
+      }
+      return;
+    }
+    if (event.type === "tool_result" && event.name) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: "tool_result",
+          content: event.result ?? "",
+          name: event.name,
+          extra: event.extra,
+          tool_call_id: event.tool_call_id,
+        },
+      ]);
+      try {
+        callbacksRef.current?.onToolResult?.(
+          event.name,
+          event.arguments ?? {},
+          event.result ?? "",
+          event.extra ?? {},
+        );
+      } catch (err) {
+        // A host-side error in the callback must not block message state.
+        log.error("onToolResult callback threw", err, {
+          tool: event.name,
+          arguments: event.arguments,
+        });
+      }
+      return;
+    }
     setMessages((prev) => {
       if (event.type === "token" && typeof event.content === "string") {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant") {
           return [...prev.slice(0, -1), { ...last, content: last.content + event.content }];
         }
-        return [...prev, { role: "assistant", content: event.content }];
-      }
-      if (event.type === "tool_call") {
-        return [
-          ...prev,
-          {
-            role: "tool_call",
-            content: event.name ?? "",
-            name: event.name,
-            arguments: event.arguments,
-          },
-        ];
-      }
-      if (event.type === "tool_result") {
-        return [
-          ...prev,
-          { role: "tool_result", content: event.result ?? "", name: event.name },
-        ];
+        return [...prev, { id: uid(), role: "assistant", content: event.content }];
       }
       return prev;
     });
@@ -207,7 +280,7 @@ export function useChat() {
     const text = inputValue.trim();
     if (!text) return;
 
-    const userMessage: Message = { role: "user", content: text };
+    const userMessage: Message = { id: uid(), role: "user", content: text };
 
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
@@ -246,8 +319,10 @@ export function useChat() {
           if (line) {
             try {
               applyEvent(JSON.parse(line) as StreamEvent);
-            } catch {
-              // Ignore malformed lines; the next one is likely valid.
+            } catch (err) {
+              // Malformed NDJSON line — log it so we can diagnose bad payloads.
+              // The next line is most likely valid, so we keep reading.
+              log.warn("Skipping malformed NDJSON line", err, { line });
             }
           }
           nl = buffer.indexOf("\n");
@@ -257,9 +332,10 @@ export function useChat() {
       // Don't show an error if the user manually aborted the stream
       if (abortControllerRef.current?.signal.aborted) return;
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      log.error("Chat stream failed", err, { errorMessage });
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `Error: ${errorMessage}` },
+        { id: uid(), role: "assistant", content: `Error: ${errorMessage}` },
       ]);
     } finally {
       abortControllerRef.current = null;

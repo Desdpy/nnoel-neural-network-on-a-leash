@@ -1,14 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Send, Square, Wrench, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChat } from "../useChat";
+import { useDockviewPanels } from "../DockviewPanels";
 import type { IDockviewPanelProps } from "dockview";
 import ReactMarkdown from "react-markdown";
 import type { Message } from "../types";
 
-// Markdown components shared by every assistant-style message (assistant text,
-// tool calls, tool results). Keeps the rendering rules in one place.
+// Markdown components shared by every assistant-style message. Keeps the
+// rendering rules in one place.
 import type { ReactNode } from "react";
 
 const markdownComponents = {
@@ -20,6 +21,39 @@ const markdownComponents = {
 
 // The main chat panel: shows a scrollable message list with a textarea input at the bottom
 export function ChatPanel({ api }: IDockviewPanelProps) {
+  const { openNewPanel, closePanel, getToolPanel } = useDockviewPanels();
+  // Track the chat-driven panels that the current assistant turn
+  // opened. We close them all together once the reply finishes
+  // streaming, so the user gets to see the tool's result alongside
+  // the final answer and the panels disappear when the turn is done.
+  // The taskbar's manual open path doesn't go through here, so those
+  // panels stay put.
+  const chatOpenedPanelsRef = useRef<Set<string>>(new Set());
+
+  // When the LLM calls a tool, open a *fresh* panel for the result. We
+  // use the *result* event — not the call — so the panel opens with the
+  // data, not before the tool has run. Each result gets its own panel
+  // instance, so e.g. asking about two cities produces two time panels
+  // side by side; opening the same tool from the taskbar still focuses
+  // the existing instance (it uses ``openOrFocusPanel`` instead).
+  // Panels opened from the chat auto-close once the assistant's reply
+  // finishes streaming (see the status-watching effect below).
+  const onToolResult = useCallback(
+    (
+      name: string,
+      args: Record<string, unknown>,
+      result: string,
+      extra: Record<string, unknown>,
+    ) => {
+      const spec = getToolPanel(name);
+      if (!spec) return;
+      const panelId = openNewPanel(spec, spec.params(args, result, extra));
+      if (panelId === null) return;
+      chatOpenedPanelsRef.current.add(panelId);
+    },
+    [openNewPanel, getToolPanel],
+  );
+
   const {
     messages,
     inputValue,
@@ -33,9 +67,28 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     handleKeyDown,
     handleStop,
     handleSubmit,
-  } = useChat();
+  } = useChat({ onToolResult });
 
   const savedScrollTopRef = useRef(0);
+
+  // Close all chat-driven tool panels once the assistant's reply
+  // finishes streaming. The status transitions to "responding" when a
+  // stream starts and back to "connected" (or "disconnected") when it
+  // ends, so we watch for the off-responding edge. We intentionally
+  // use the previous-status ref so only the trailing edge fires, not
+  // every render while the stream is running.
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const wasResponding = prevStatusRef.current === "responding";
+    const isResponding = status === "responding";
+    prevStatusRef.current = status;
+    if (wasResponding && !isResponding) {
+      for (const panelId of chatOpenedPanelsRef.current) {
+        closePanel(panelId);
+      }
+      chatOpenedPanelsRef.current.clear();
+    }
+  }, [status, closePanel]);
 
   // Continuously track the scroll position so it's always available for
   // restoration when the panel is (re-)activated — not just after a
@@ -81,7 +134,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   }, [api, textareaRef, messagesContainerRef]);
 
   return (
-    <div className="flex flex-col h-full text-text-base">
+    <div data-panel-id="chat" className="flex flex-col h-full text-text-base">
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-muted-fg">
           Loading chat…
@@ -94,7 +147,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
             Loading older messages…
           </div>
         )}
-        {messages.map((msg, index) => renderMessage(msg, index))}
+        {messages.map((msg) => renderMessage(msg))}
 
         {/* Animated "typing" dots while the LLM is generating a response */}
         {status === "responding" && (
@@ -157,14 +210,15 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   );
 }
 
-// Render a single message bubble. User/assistant get the standard treatment;
-// tool_call/tool_result get a compact, monospace card that makes the
-// intermediate steps obvious in the conversation history.
-function renderMessage(msg: Message, index: number) {
+// Render a single message bubble. User/assistant get the standard
+// treatment; tool_call/tool_result get a compact, monospace card that
+// shows the intermediate steps. In parallel, tool invocations also
+// open a dedicated panel for the tool (see ``onToolResult`` above).
+function renderMessage(msg: Message) {
   if (msg.role === "user") {
     return (
       <div
-        key={index}
+        key={msg.id}
         className="max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap self-end bg-surface-deep rounded-br-sm"
       >
         <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
@@ -175,7 +229,7 @@ function renderMessage(msg: Message, index: number) {
   if (msg.role === "assistant") {
     return (
       <div
-        key={index}
+        key={msg.id}
         className="max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap self-start bg-surface-raised rounded-bl-sm"
       >
         <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
@@ -191,7 +245,7 @@ function renderMessage(msg: Message, index: number) {
       : "";
     return (
       <div
-        key={index}
+        key={msg.id}
         className="self-start max-w-[75%] text-xs text-muted-fg bg-surface-raised/60 border border-border rounded-2xl rounded-bl-sm px-3 py-2 font-mono flex items-start gap-2"
       >
         <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
@@ -206,7 +260,7 @@ function renderMessage(msg: Message, index: number) {
   if (msg.role === "tool_result") {
     return (
       <div
-        key={index}
+        key={msg.id}
         className="self-start max-w-[75%] text-xs text-muted-fg bg-surface-raised/40 border border-border rounded-2xl rounded-bl-sm px-3 py-2 font-mono flex items-start gap-2"
       >
         <ArrowRight className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
