@@ -156,15 +156,15 @@ export function NeuralNetworkBackground() {
       }
     }
 
-    // Target ~24 fps for the canvas animation
-    const FRAME_INTERVAL = 1000 / 24;
+    // Target ~12 fps for the canvas animation
+    const FRAME_INTERVAL = 1000 / 12;
     let lastFrameTime = 0;
 
     // Main animation loop
     function draw(time: number) {
       animationId = requestAnimationFrame(draw);
 
-      // Throttle to ~24 fps
+      // Throttle to ~12 fps
       const elapsed = time - lastFrameTime;
       if (elapsed < FRAME_INTERVAL) return;
       lastFrameTime = time - (elapsed % FRAME_INTERVAL);
