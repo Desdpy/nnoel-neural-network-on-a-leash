@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Send, Square, Wrench, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +25,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     inputValue,
     status,
     loading,
+    loadingMore,
     messagesEndRef,
     messagesContainerRef,
     textareaRef,
@@ -34,22 +35,50 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     handleSubmit,
   } = useChat();
 
-  // Focus the textarea when this panel becomes active; blur when it loses focus
+  const savedScrollTopRef = useRef(0);
+
+  // Continuously track the scroll position so it's always available for
+  // restoration when the panel is (re-)activated — not just after a
+  // deactivation.
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      savedScrollTopRef.current = container.scrollTop;
+    };
+    container.addEventListener("scroll", onScroll);
+    savedScrollTopRef.current = container.scrollTop;
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [messagesContainerRef, loading]);
+
+  // Focus the textarea when this panel becomes active; blur when it loses focus.
+  // ``preventScroll: true`` keeps the browser from scrolling the textarea (or
+  // any of its scrollable ancestors) into view. We also restore the saved
+  // scroll position via rAF so dockview's activation doesn't yank the list
+  // back to the top.
   useEffect(() => {
     if (api.isGroupActive) {
-      textareaRef.current?.focus();
+      textareaRef.current?.focus({ preventScroll: true });
     }
 
     const disposable = api.onDidActiveGroupChange((e) => {
       if (e.isActive) {
-        textareaRef.current?.focus();
+        const saved = savedScrollTopRef.current;
+        textareaRef.current?.focus({ preventScroll: true });
+        if (messagesContainerRef.current && saved > 0) {
+          requestAnimationFrame(() => {
+            if (messagesContainerRef.current) {
+              messagesContainerRef.current.scrollTop = saved;
+            }
+          });
+        }
       } else {
         textareaRef.current?.blur();
       }
     });
 
     return () => disposable.dispose();
-  }, [api, textareaRef]);
+  }, [api, textareaRef, messagesContainerRef]);
 
   return (
     <div className="flex flex-col h-full text-text-base">
@@ -59,6 +88,12 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
         </div>
       ) : (
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3 scrollbar-thin [scrollbar-color:var(--border)_transparent]">
+        {/* Spinner shown at the very top while a page of older messages is loading. */}
+        {loadingMore && (
+          <div className="self-center text-xs text-muted-fg py-2">
+            Loading older messages…
+          </div>
+        )}
         {messages.map((msg, index) => renderMessage(msg, index))}
 
         {/* Animated "typing" dots while the LLM is generating a response */}

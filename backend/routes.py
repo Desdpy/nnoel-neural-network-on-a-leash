@@ -5,7 +5,7 @@ from typing import Any
 
 import tools
 from config import AGENT_NAME, AGENT_SYSTEM_PROMPT
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from llama import chat_stream, get_llm
 
@@ -270,9 +270,40 @@ def chat(message: str = Body(..., embed=True)):
 
 
 @router.get("/api/chat")
-def get_chat():
-    """Load the saved messages."""
-    return {"messages": _load_messages()}
+def get_chat(
+    before: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=10, ge=1, le=200),
+):
+    """Load a page of saved messages in chronological order.
+
+    The first call (no ``before``) returns the most recent ``limit``
+    messages. Subsequent calls pass ``before=<id of the oldest message
+    already loaded>`` to fetch the page immediately preceding the
+    current view. The response includes ``hasMore`` so the UI knows
+    when it has reached the start of the history.
+    """
+    conn = _get_db()
+    if before is None:
+        rows = conn.execute(
+            "SELECT id, role, content FROM messages ORDER BY id DESC LIMIT ?",
+            (limit + 1,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, role, content FROM messages "
+            "WHERE id < ? ORDER BY id DESC LIMIT ?",
+            (before, limit + 1),
+        ).fetchall()
+    conn.close()
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    # ``rows`` is ordered newest-first, so the cursor for the next page
+    # (``firstId``) is the *last* element of the trimmed list — the
+    # oldest message in this page.
+    messages = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    first_id = rows[-1]["id"] if rows else None
+    return {"messages": messages, "hasMore": has_more, "firstId": first_id}
 
 
 @router.post("/tools/{name}")

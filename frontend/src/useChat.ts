@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { Message, ConnectionStatus } from "./types";
 
 interface StreamEvent {
@@ -17,20 +17,36 @@ export function useChat() {
   const [inputValue, setInputValue] = useState("");
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Cursor for infinite scroll-up: id of the oldest message already
+  // loaded. The next page request sends it as ``before=<id>`` so the
+  // backend returns messages strictly older than what we have.
+  const [firstId, setFirstId] = useState<number | null>(null);
+  // False once the backend reports there are no older messages.
+  const [hasMore, setHasMore] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottomRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Scroll metrics captured just before older messages are prepended,
+  // so we can restore the user's viewport after the DOM grows.
+  const prevScrollHeightRef = useRef<number | null>(null);
 
-  // Load persisted conversation history from the server on mount
+  // Load the most recent page of persisted conversation history on mount
   useEffect(() => {
     const init = async () => {
       try {
-        const res = await fetch("/api/chat");
+        const res = await fetch("/api/chat?limit=20");
         if (res.ok) {
-          const data = await res.json();
+          const data = (await res.json()) as {
+            messages: Message[];
+            hasMore: boolean;
+            firstId: number | null;
+          };
           setMessages(data.messages ?? []);
+          setFirstId(data.firstId ?? null);
+          setHasMore(data.hasMore ?? false);
         }
       } catch {
         // offline — proceed empty
@@ -40,14 +56,58 @@ export function useChat() {
     init();
   }, []);
 
+  // Fetch the page of messages that precedes the oldest one we already
+  // have. Called from the scroll handler when the user reaches the top.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || firstId === null) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    prevScrollHeightRef.current = container.scrollHeight;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/chat?before=${encodeURIComponent(String(firstId))}&limit=20`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        messages: Message[];
+        hasMore: boolean;
+        firstId: number | null;
+      };
+      const fresh = data.messages ?? [];
+      if (fresh.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      setMessages((prev) => [...fresh, ...prev]);
+      setFirstId(data.firstId ?? null);
+      setHasMore(data.hasMore ?? false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [firstId, hasMore, loadingMore]);
+
+  // After prepending older messages, shift the scrollTop by the amount
+  // the scroll area grew so the visible content stays put.
+  useLayoutEffect(() => {
+    const prev = prevScrollHeightRef.current;
+    if (prev === null) return;
+    prevScrollHeightRef.current = null;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const grown = container.scrollHeight - prev;
+    container.scrollTop += grown;
+  }, [messages]);
+
   // Scroll the messages container to the very bottom
   const scrollToBottom = useCallback(() => {
     const container = messagesContainerRef.current;
     if (container) container.scrollTop = container.scrollHeight;
   }, []);
 
-  // Track whether the user has scrolled to the bottom of the message list so
-  // we can decide whether to auto‑scroll when new content arrives
+  // Track scroll position. Used for both auto-scroll-on-new-message
+  // and infinite-scroll-up: when the user is at (or very near) the top
+  // and there's more history, request the next page.
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -55,10 +115,13 @@ export function useChat() {
       const threshold = 2;
       isAtBottomRef.current =
         container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+      if (container.scrollTop <= threshold && hasMore && !loadingMore) {
+        loadMore();
+      }
     };
     container.addEventListener("scroll", onScroll);
     return () => container.removeEventListener("scroll", onScroll);
-  }, [loading]);
+  }, [loading, hasMore, loadingMore, loadMore]);
 
   // Auto‑scroll when new messages arrive, but only if the user is already at
   // the bottom (don't steal scroll position while they're reading history)
@@ -81,9 +144,8 @@ export function useChat() {
     checkServer();
   }, []);
 
-  // Focus the textarea once the initial load and connection check have completed
   useEffect(() => {
-    textareaRef.current?.focus();
+    textareaRef.current?.focus({ preventScroll: true });
   }, [status, loading]);
 
   // Update input state on every keystroke and keep the textarea scrolled down
@@ -209,6 +271,7 @@ export function useChat() {
     inputValue,
     status,
     loading,
+    loadingMore,
     messagesEndRef,
     messagesContainerRef,
     textareaRef,
