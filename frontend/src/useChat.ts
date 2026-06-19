@@ -211,6 +211,7 @@ export function useChat() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
+    isAtBottomRef.current = true;
     setStatus("responding");
 
     abortControllerRef.current = new AbortController();

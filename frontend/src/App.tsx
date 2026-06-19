@@ -77,6 +77,14 @@ function App() {
       }
     };
 
+    const scheduleExpand = () => {
+      cancelPending();
+      expandTimer = window.setTimeout(() => {
+        setTaskbarCollapsed(false);
+        expandTimer = undefined;
+      }, 100);
+    };
+
     function onMove(e: MouseEvent) {
       const el = taskbarRef.current;
       if (!el) return;
@@ -89,11 +97,7 @@ function App() {
 
       if (inside && !wasInside) {
         // Cursor just entered — schedule a delayed expand.
-        cancelPending();
-        expandTimer = window.setTimeout(() => {
-          setTaskbarCollapsed(false);
-          expandTimer = undefined;
-        }, 100);
+        scheduleExpand();
       } else if (!inside && wasInside) {
         // Cursor just left — cancel any pending expand and collapse now.
         cancelPending();
@@ -107,10 +111,18 @@ function App() {
       setTaskbarCollapsed(true);
     }
 
+    // mouseenter on the element itself fires reliably even when the
+    // cursor enters the browser window from outside (e.g. from the OS
+    // chrome on the left), which document-level mousemove can miss if
+    // the cursor doesn't move after entry.
+    const el = taskbarRef.current;
+    el?.addEventListener("mouseenter", scheduleExpand);
+
     document.addEventListener("mousemove", onMove, { passive: true });
     document.addEventListener("mouseleave", onLeave, { passive: true });
     return () => {
       cancelPending();
+      el?.removeEventListener("mouseenter", scheduleExpand);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseleave", onLeave);
     };
