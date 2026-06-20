@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useRef } from "react";
-import { Send, Square, Wrench, ArrowRight } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Send,
+  Square,
+  Wrench,
+  ArrowRight,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChat } from "../useChat";
 import { useDockviewPanels } from "../DockviewPanels";
+import { useTtsPlayer } from "../useTtsPlayer";
 import type { IDockviewPanelProps } from "dockview";
 import ReactMarkdown from "react-markdown";
 import type { Message } from "../types";
@@ -22,6 +30,12 @@ const markdownComponents = {
 // The main chat panel: shows a scrollable message list with a textarea input at the bottom
 export function ChatPanel({ api }: IDockviewPanelProps) {
   const { openNewPanel, closePanel, getToolPanel } = useDockviewPanels();
+  // TTS is a panel-local concern: one AudioContext shared with the
+  // whole page (singleton in useTtsPlayer) plus a per-panel mute
+  // toggle. We keep the toggle in component state so a hot-reload
+  // doesn't lose the user's preference.
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(true);
+  const ttsPlayer = useTtsPlayer({ enabled: ttsEnabled });
   // Track the chat-driven panels that the current assistant turn
   // opened. We close them all together once the reply finishes
   // streaming, so the user gets to see the tool's result alongside
@@ -67,7 +81,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     handleKeyDown,
     handleStop,
     handleSubmit,
-  } = useChat({ onToolResult });
+  } = useChat({ onToolResult }, { ttsPlayer, ttsEnabled });
 
   const savedScrollTopRef = useRef(0);
 
@@ -176,6 +190,37 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
             disabled={status === "responding"}
             autoComplete="off"
           />
+          {/* Speaker on/off — toggles TTS playback. Disable stops any
+              currently playing audio too (we do that in the click
+              handler). */}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={() => {
+              if (ttsEnabled) {
+                // Mute and stop any in-flight audio right away.
+                ttsPlayer.stop();
+              }
+              setTtsEnabled((v) => !v);
+            }}
+            aria-label={ttsEnabled ? "Mute voice" : "Unmute voice"}
+            title={ttsEnabled ? "Mute voice" : "Unmute voice"}
+          >
+            {ttsEnabled ? (
+              <Volume2
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : (
+              <VolumeX
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+          </Button>
           {/* Show a stop button while streaming, otherwise show a send button */}
           {status === "responding" ? (
             <Button

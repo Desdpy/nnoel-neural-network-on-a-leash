@@ -1,14 +1,27 @@
+import base64
+import concurrent.futures
 import json
+import queue
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import tools
-from config import AGENT_NAME, AGENT_SYSTEM_PROMPT
+from config import (
+    AGENT_NAME,
+    AGENT_SYSTEM_PROMPT,
+    TTS_FIRST_CHUNK_WORDS,
+    TTS_MAX_CHARS,
+    TTS_MIN_CHARS,
+)
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from llama import chat_stream, get_llm
 from log import get_logger
+from text_chunker import TextChunker
+from tts import get_tts, tts_disabled
 
 log = get_logger("routes")
 
@@ -98,6 +111,15 @@ def _ndjson(event: dict[str, Any]) -> str:
     return json.dumps(event, ensure_ascii=False) + "\n"
 
 
+def _float_to_int16_le(samples: np.ndarray) -> bytes:
+    """Convert a float32 [-1, 1] PCM array to little-endian int16 bytes."""
+    if samples.size == 0:
+        return b""
+    cleaned = np.nan_to_num(samples, nan=0.0)
+    clipped = np.clip(cleaned, -1.0, 1.0)
+    return (clipped * 32767.0).astype("<i2").tobytes()
+
+
 # --- API Endpoints ---
 
 @router.get("/config")
@@ -184,6 +206,9 @@ def chat(message: str = Body(..., embed=True)):
     ``application/x-ndjson`` stream. Each line is a JSON object:
 
     - ``{"type": "token", "content": "..."}`` — a text delta
+    - ``{"type": "audio", "seq": N, "fmt": "s16le", "sr": 22050,
+       "ch": 1, "data": "<base64>"}`` — a TTS audio chunk
+    - ``{"type": "audio_end"}`` — no more audio for this reply
     - ``{"type": "tool_call", "name": "...", "arguments": {...}}`` —
       the model wants to call a tool
     - ``{"type": "tool_result", "name": "...", "result": "..."}`` —
@@ -213,9 +238,115 @@ def chat(message: str = Body(..., embed=True)):
         # assistant message behind.
         def event_stream():
             full_reply = ""
+            audio_seq = 0
+            audio_emitted = False
+            # Try to load the TTS model once per stream. If the model
+            # failed to load (missing files, missing native deps) ``tts``
+            # is None and we just skip audio for this request.
+            tts = get_tts()
+            tts_active = tts is not None and not tts_disabled()
+            chunker = TextChunker(
+                min_chars=TTS_MIN_CHARS,
+                max_chars=TTS_MAX_CHARS,
+                first_chunk_words=TTS_FIRST_CHUNK_WORDS,
+            )
+            # Audio chunks are produced by a pool of TTS worker threads.
+            # sherpa-onnx releases the GIL during ONNX Runtime inference,
+            # so multiple chunks can synthesise concurrently. ``pending``
+            # tracks in-flight futures so we can wait for every audio
+            # chunk to ship before the final ``done`` event.
+            audio_q: queue.Queue = queue.Queue()
+            pending: set[concurrent.futures.Future[None]] = set()
+            pending_lock = threading.Lock()
+            shutdown = threading.Event()
+
+            def _synth_one(text: str) -> None:
+                if shutdown.is_set() or tts is None:
+                    return
+                try:
+                    result = tts.synthesize(text)
+                except Exception as err:  # noqa: BLE001
+                    log.warning(
+                        "TTS synth failed for chunk %r: %s", text[:60], err
+                    )
+                    return
+                if result is not None and not shutdown.is_set():
+                    audio_q.put(result)
+
+            executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="tts"
+            )
+
+            def submit_chunk(text: str) -> None:
+                if not text or tts is None:
+                    return
+                fut = executor.submit(_synth_one, text)
+                with pending_lock:
+                    pending.add(fut)
+
+                def _done(f: concurrent.futures.Future[None]) -> None:
+                    with pending_lock:
+                        pending.discard(f)
+
+                fut.add_done_callback(_done)
+
+            def drain_audio(blocking: bool) -> list[str]:
+                """Build NDJSON strings for any audio ready on the queue.
+
+                ``blocking=True`` waits for *all* pending futures to
+                finish (up to 30s) so the caller can ensure every
+                audio chunk for the assistant's reply is shipped before
+                the final ``done`` event. ``blocking=False`` returns
+                immediately and only emits whatever is already in the
+                queue.
+                """
+                nonlocal audio_seq, audio_emitted
+                if tts is None:
+                    return []
+                if blocking:
+                    # Loop until every pending future is done. The
+                    # first iteration may unblock as soon as the
+                    # earliest future completes, but we then keep
+                    # waiting for the rest. Without this loop we
+                    # could return after a single chunk and silently
+                    # drop the rest of the reply's audio.
+                    while True:
+                        with pending_lock:
+                            wait_for = list(pending)
+                        if not wait_for:
+                            break
+                        concurrent.futures.wait(
+                            wait_for,
+                            timeout=30.0,
+                            return_when=concurrent.futures.ALL_COMPLETED,
+                        )
+                out: list[str] = []
+                while True:
+                    try:
+                        result = audio_q.get_nowait()
+                    except queue.Empty:
+                        break
+                    pcm_bytes = _float_to_int16_le(result.samples)
+                    out.append(
+                        _ndjson(
+                            {
+                                "type": "audio",
+                                "seq": audio_seq,
+                                "fmt": "s16le",
+                                "sr": result.sample_rate,
+                                "ch": 1,
+                                "data": base64.b64encode(pcm_bytes).decode("ascii"),
+                            }
+                        )
+                    )
+                    audio_seq += 1
+                    audio_emitted = True
+                return out
+
             try:
                 for _ in range(MAX_TOOL_ITERATIONS):
                     tool_calls: list[dict[str, Any]] = []
+                    chunker.reset()
 
                     for event in chat_stream(llm_messages, tools=tools.TOOLS or None):
                         kind = event[0]
@@ -225,14 +356,31 @@ def chat(message: str = Body(..., embed=True)):
                             # type checker can't narrow ``event[1]`` from the
                             # first element alone, so we assert and rebind.
                             assert isinstance(event[1], str)
-                            full_reply += event[1]
-                            yield _ndjson({"type": "token", "content": event[1]})
+                            text = event[1]
+                            full_reply += text
+                            yield _ndjson({"type": "token", "content": text})
+                            if tts_active:
+                                for chunk in chunker.feed(text):
+                                    submit_chunk(chunk)
+                                # While the LLM is generating the next
+                                # token, ship any audio that finished
+                                # synthesizing so the listener keeps up
+                                # with the text in near real time.
+                                for nd in drain_audio(blocking=False):
+                                    yield nd
                         elif kind == "tool_calls":
                             assert isinstance(event[1], list)
                             tool_calls = event[1]
 
                     if not tool_calls:
-                        # Model produced a final text answer — we're done.
+                        # Model produced a final text answer — flush the
+                        # chunker tail and drain any pending audio before
+                        # falling through to the ``done`` event below.
+                        tail = chunker.flush()
+                        if tail and tts_active:
+                            submit_chunk(tail)
+                        for nd in drain_audio(blocking=True):
+                            yield nd
                         break
 
                     # Append the assistant's tool-call turn to the conversation.
@@ -352,10 +500,21 @@ def chat(message: str = Body(..., embed=True)):
                                 "content": llm_text,
                             }
                         )
+                    # Drop any half-speakable text from this iteration
+                    # so the next round of LLM output starts with a
+                    # clean chunker. We do not want the assistant's
+                    # narration to bleed into a tool-call round.
+                    chunker.reset()
             except GeneratorExit:
-                # Client disconnected (e.g. Stop button) — don't persist the
-                # partial reply and don't try to send a final `done` event.
+                # Client disconnected (e.g. Stop button) — don't persist
+                # the partial reply, don't try to send a final ``done``
+                # event, and stop the TTS worker so it doesn't keep
+                # synthesizing audio nobody will hear.
+                shutdown.set()
+                executor.shutdown(wait=False, cancel_futures=True)
                 return
+            if tts_active and audio_emitted:
+                yield _ndjson({"type": "audio_end"})
             if full_reply:
                 _append_message("assistant", full_reply)
             yield _ndjson({"type": "done"})
@@ -366,8 +525,8 @@ def chat(message: str = Body(..., embed=True)):
         raise HTTPException(
             status_code=502,
             detail=(
-                "Cannot connect to llama.cpp server."
-                "Make sure llama-cpp-python is running."
+                "Failed to start chat stream. " 
+                "The language model may not be loaded yet."
             ),
         ) from err
 

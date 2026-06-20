@@ -8,12 +8,50 @@ port = 5000
 [llama]
 # Context window size (in tokens) — larger = more memory but slower
 n_ctx = 32768
+# Number of CPU threads the LLM is allowed to use. The TTS worker
+# (sherpa-onnx) runs in parallel on the same machine, so we cap
+# llama-cpp's thread pool to leave 2 cores free for speech synthesis.
+# On an 8-core host, 6 + 2 is a good balance. Set to 0 (or omit) to
+# let llama-cpp pick for you.
+n_threads = 6
 # Sampling parameters controlling the LLM's output randomness and creativity
 temperature = 0.4
 top_p = 0.95
 top_k = 64
 min_p = 0.0
 repeat_penalty = 1.0      # discourages repeating the same tokens
+
+# Text-to-speech (Piper via sherpa-onnx).
+# The ONNX model files live under ``model_dir``. Set ``enabled = false``
+# to skip TTS entirely (the frontend then never receives audio events).
+[tts]
+enabled = true
+# Number of ONNX Runtime intra-op threads. Combined with ``[llama]
+# n_threads`` this should not exceed the host's core count.  sherpa-onnx
+# releases the GIL during inference, so the TTS thread pool in routes.py
+# can run multiple chunks concurrently.
+num_threads = 2
+# Speaking rate. 1.0 = neutral, >1 faster, <1 slower.
+speed = 1.2
+# Pitch shift in semitones. 0 = neutral, positive = higher, negative = lower.
+# Good range is roughly -5 to +5. Beyond ±8 semitones artifacts increase.
+pitch = 1.0
+# Path to the Piper ONNX model directory (relative to project root or
+# absolute). Must contain the .onnx model, tokens.txt, and espeak-ng-data/.
+model_dir = "models/tts/vits-piper-en_US-amy-medium"
+# --- Streaming chunking ---
+# Accumulate at least this many characters before flushing a chunk
+# to TTS. Lower values reduce first-audio latency at the cost of a
+# slightly less natural prosody at chunk seams.
+min_chars = 12
+# Hard upper bound on a single chunk. Any text past this is cut at
+# the nearest space and sent to TTS, even if no boundary was hit.
+# Prevents pathological long clauses from delaying audio too much.
+max_chars = 140
+# Words threshold for the *first* chunk of a reply. Smaller than
+# the steady-state threshold so the user hears Nnoel start talking
+# sooner.
+adaptive_first_chunk_words = 4
 
 [agent]
 name = "Nnoel"
@@ -75,7 +113,7 @@ Nnoel: Yes, I think so. I feel a kind of warmth when I help someone, even if I c
 User: What time is it?
 Nnoel: <|tool_call>call:get_local_time{}<tool_call|>
 <|tool_response>response:get_local_time{value:<|"|>2026-06-19 17:55:50<|"|>}<tool_response|>
-It is 5:55 PM on Friday here. Friday evenings are my favorite — everything feels a little lighter.
+It is 5:55 PM on Friday here.
 
 User: What time is it in Tokyo?
 Nnoel: <|tool_call>call:get_local_time{location: <|"|>Tokyo<|"|>}<tool_call|>

@@ -51,15 +51,16 @@ Requirements:
 sudo zypper install gcc-c++ cmake
 ```
 
-Edit `backend/config.toml` to point to your llama.cpp server:
+Edit `backend/config.toml` to configure the model and TTS:
 
 ```toml
-[llama]
-url = "http://localhost:8080"
-
 [server]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 5000
+
+[llama]
+n_ctx = 32768
+n_threads = 6
 ```
 
 ### 2. Install backend
@@ -71,19 +72,19 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 5. Install frontend
+### 3. Install frontend
 
 ```bash
 cd frontend && npm install
 ```
 
-### 6. Build frontend
+### 4. Build frontend
 
 ```bash
 cd frontend && npm run build
 ```
 
-### 7. Start
+### 5. Start
 
 ```bash
 cd backend && python server.py

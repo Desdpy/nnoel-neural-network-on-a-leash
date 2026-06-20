@@ -3,3 +3,10 @@ uvicorn[standard]
 llama-cpp-python
 python-multipart
 tomli; python_version < "3.11"
+# Text-to-speech (Piper via sherpa-onnx). The ONNX model files must be
+# present under ``models/tts/`` — they are not installed from PyPI.
+# sherpa-onnx provides the inference engine; espeak-ng-data ships
+# alongside the model.
+numpy
+sherpa-onnx
+loguru

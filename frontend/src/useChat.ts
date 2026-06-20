@@ -1,20 +1,37 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { Message, ConnectionStatus } from "./types";
 import { createLogger } from "./lib/logger";
+import type { TtsPlayer } from "./useTtsPlayer";
 
 const log = createLogger("useChat");
+
+/** Fallback sample rate (Hz) if the backend omits ``sr``. Matches Piper amy-medium. */
+const DEFAULT_TTS_SR = 22050;
 
 let _nextId = 0;
 const uid = () => `msg_${++_nextId}`;
 
 interface StreamEvent {
-  type: "token" | "tool_call" | "tool_result" | "done" | string;
+  type:
+    | "token"
+    | "tool_call"
+    | "tool_result"
+    | "done"
+    | "audio"
+    | "audio_end"
+    | string;
   content?: string;
   name?: string;
   arguments?: Record<string, unknown>;
   result?: string;
   extra?: Record<string, unknown>;
   tool_call_id?: string;
+  // -- audio event fields --
+  seq?: number;
+  data?: string; // base64-encoded int16 LE mono PCM
+  sr?: number;
+  ch?: 1;
+  fmt?: "s16le";
 }
 
 // Callbacks fired when the model invokes a tool. Tool steps are NOT added
@@ -30,7 +47,17 @@ export interface UseChatCallbacks {
   ) => void;
 }
 
-export function useChat(callbacks?: UseChatCallbacks) {
+export interface UseChatOptions {
+  /** TTS playback handler. When omitted, audio events are ignored. */
+  ttsPlayer?: TtsPlayer | null;
+  /** Master mute switch — when false, no audio is played. */
+  ttsEnabled?: boolean;
+}
+
+export function useChat(
+  callbacks?: UseChatCallbacks,
+  options: UseChatOptions = {},
+) {
   // Top‑level state shared across chat features: the message list, the current
   // textarea value, connection status, loading flag, and the refs that tie into
   // the DOM (scroll container, textarea, and the abort controller for streaming).
@@ -196,6 +223,11 @@ export function useChat(callbacks?: UseChatCallbacks) {
   // Abort an in‑flight streaming response
   const handleStop = () => {
     abortControllerRef.current?.abort();
+    // Drop any in-flight or queued TTS audio immediately. The backend
+    // also stops synthesis on the wire (the ``GeneratorExit`` branch
+    // in ``event_stream``), but doing it client-side means the user
+    // doesn't have to wait for the server to notice the disconnect.
+    options.ttsPlayer?.stop();
   };
 
   // Latest callbacks, kept in a ref so we can invoke them from the
@@ -289,6 +321,16 @@ export function useChat(callbacks?: UseChatCallbacks) {
 
     abortControllerRef.current = new AbortController();
 
+    // Make sure the AudioContext exists and is resumed *before* the
+    // first audio event arrives. ``handleSubmit`` runs from a click
+    // event, so we have a transient user activation and ``resume()``
+    // will succeed. ``ensureContext()`` is a no-op if TTS is disabled
+    // or Web Audio is unavailable on this browser.
+    const ttsPlayer = options.ttsPlayer ?? null;
+    if (ttsPlayer && (options.ttsEnabled ?? true)) {
+      ttsPlayer.ensureContext();
+    }
+
     try {
       const response = await fetch("/chat", {
         method: "POST",
@@ -318,7 +360,31 @@ export function useChat(callbacks?: UseChatCallbacks) {
           buffer = buffer.slice(nl + 1);
           if (line) {
             try {
-              applyEvent(JSON.parse(line) as StreamEvent);
+              const event = JSON.parse(line) as StreamEvent;
+              applyEvent(event);
+              if (ttsPlayer && (options.ttsEnabled ?? true)) {
+                if (event.type === "audio" && event.data) {
+                  // The wire payload carries base64-encoded int16 LE PCM.
+                  // ``atob`` returns a binary string; we copy it into a
+                  // fresh ``ArrayBuffer`` because ``decodeAudioData``
+                  // wants an ArrayBuffer, not a binary string.
+                  const binary = atob(event.data);
+                  const bytes = new Uint8Array(binary.length);
+                  for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                  }
+                  ttsPlayer.feedAudioEvent({
+                    type: "audio",
+                    seq: event.seq ?? 0,
+                    data: bytes.buffer,
+                    sr: event.sr ?? DEFAULT_TTS_SR,
+                    ch: 1,
+                    fmt: "s16le",
+                  });
+                } else if (event.type === "audio_end") {
+                  ttsPlayer.feedAudioEvent({ type: "audio_end" });
+                }
+              }
             } catch (err) {
               // Malformed NDJSON line — log it so we can diagnose bad payloads.
               // The next line is most likely valid, so we keep reading.

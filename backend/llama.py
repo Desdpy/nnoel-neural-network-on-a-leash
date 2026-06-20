@@ -9,6 +9,7 @@ from config import (
     LLM_MMPROJ_PATH,
     LLM_MODEL_PATH,
     LLM_N_CTX,
+    LLM_N_THREADS,
     LLM_PRESENCE_PENALTY,
     LLM_REPEAT_PENALTY,
     LLM_TEMPERATURE,
@@ -64,6 +65,11 @@ def get_llm() -> Llama:
             "n_ctx": LLM_N_CTX,
             "verbose": True,
         }
+        # Cap CPU threads so the TTS worker can use the remaining cores
+        # without thrashing the LLM. ``None`` (config omitted) means
+        # llama-cpp falls back to its own heuristic.
+        if LLM_N_THREADS:
+            kwargs["n_threads"] = int(LLM_N_THREADS)
         # Attach a multimodal projection file if one exists on disk
         if LLM_MMPROJ_PATH:
             kwargs["mmproj"] = LLM_MMPROJ_PATH

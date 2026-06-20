@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Nnoel — Lightweight web UI for a llama.cpp server.
+Nnoel — Local AI assistant with in-process LLM and TTS.
 """
 
 from pathlib import Path

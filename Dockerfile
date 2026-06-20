@@ -10,8 +10,9 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install build deps needed for llama-cpp-python compilation
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake curl \
+# Install build deps for llama-cpp-python and sherpa-onnx (both have C++ extensions).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code
@@ -27,6 +28,16 @@ RUN mkdir -p /app/models && \
         "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf" && \
     curl -#L -o /app/models/main-mmproj.gguf \
         "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-BF16.gguf"
+
+# Download the Piper TTS model (en_US-amy-medium, single female voice).
+# The model directory ships espeak-ng-data and tokens alongside the ONNX
+# weights — no separate download is needed.
+RUN mkdir -p /app/models/tts/vits-piper-en_US-amy-medium && \
+    curl -#L -o /tmp/piper-tts.tar.bz2 \
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2" && \
+    tar xf /tmp/piper-tts.tar.bz2 -C /app/models/tts/ && \
+    rm /tmp/piper-tts.tar.bz2 && \
+    ls -lh /app/models/tts/vits-piper-en_US-amy-medium/
 
 EXPOSE 5000
 
