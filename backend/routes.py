@@ -15,6 +15,7 @@ from config import (
     TTS_FIRST_CHUNK_WORDS,
     TTS_MAX_CHARS,
     TTS_MIN_CHARS,
+    TTS_WORKERS,
 )
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
@@ -274,7 +275,7 @@ def chat(message: str = Body(..., embed=True)):
                     audio_q.put(result)
 
             executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=2, thread_name_prefix="tts"
+                max_workers=TTS_WORKERS, thread_name_prefix="tts"
             )
 
             def submit_chunk(text: str) -> None:

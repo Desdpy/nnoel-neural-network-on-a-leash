@@ -31,6 +31,10 @@ enabled = true
 # releases the GIL during inference, so the TTS thread pool in routes.py
 # can run multiple chunks concurrently.
 num_threads = 2
+# Number of TTS worker threads that synthesise chunks in parallel.
+# sherpa-onnx releases the GIL, so 2 workers on a 6+ core machine
+# keeps audio well ahead of the LLM. Increase if audio still lags.
+workers = 1
 # Speaking rate. 1.0 = neutral, >1 faster, <1 slower.
 speed = 1.2
 # Pitch shift in semitones. 0 = neutral, positive = higher, negative = lower.
@@ -51,7 +55,7 @@ max_chars = 140
 # Words threshold for the *first* chunk of a reply. Smaller than
 # the steady-state threshold so the user hears Nnoel start talking
 # sooner.
-adaptive_first_chunk_words = 4
+adaptive_first_chunk_words = 1
 
 [agent]
 name = "Nnoel"

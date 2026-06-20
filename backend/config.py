@@ -49,6 +49,7 @@ AGENT_SYSTEM_PROMPT = config.get("agent", {}).get("system_prompt", "")
 # the chat stream simply skips audio synthesis entirely.
 TTS_ENABLED = bool(config.get("tts", {}).get("enabled", False))
 TTS_NUM_THREADS = int(config.get("tts", {}).get("num_threads", 2))
+TTS_WORKERS = int(config.get("tts", {}).get("workers", 2))
 TTS_SPEED = float(config.get("tts", {}).get("speed", 1.0))
 TTS_PITCH = float(config.get("tts", {}).get("pitch", 0.0))
 _raw_model_dir = config.get("tts", {}).get(
