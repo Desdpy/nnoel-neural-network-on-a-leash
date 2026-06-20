@@ -8,12 +8,10 @@ port = 5000
 [llama]
 # Context window size (in tokens) — larger = more memory but slower
 n_ctx = 32768
-# Number of CPU threads the LLM is allowed to use. The TTS worker
-# (sherpa-onnx) runs in parallel on the same machine, so we cap
-# llama-cpp's thread pool to leave 2 cores free for speech synthesis.
-# On an 8-core host, 6 + 2 is a good balance. Set to 0 (or omit) to
-# let llama-cpp pick for you.
-n_threads = 6
+# Number of CPU threads the LLM is allowed to use. Defaults to
+# (total CPU threads − TTS num_threads) so the TTS engine has
+# dedicated cores. Override only if you want manual control.
+# n_threads = 6
 # Sampling parameters controlling the LLM's output randomness and creativity
 temperature = 0.4
 top_p = 0.95

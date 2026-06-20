@@ -1,11 +1,7 @@
 import os
 from pathlib import Path
 
-# Use Python 3.11+'s built-in tomllib; fall back to the tomli package on older versions
-try:
-    import tomllib              # Python 3.11+
-except ImportError:             # This is needed if Python 3.10 or older is used
-    import tomli as tomllib     # type: ignore[import-unresolved]
+import tomllib
 
 # Path to the user-editable TOML configuration file
 CONFIG_PATH = Path(__file__).parent / "config.toml"
@@ -30,7 +26,11 @@ if not os.path.exists(LLM_MMPROJ_PATH):
 
 # --- LLM sampling parameters (each may be None if not set in config) ---
 LLM_N_CTX = int(config["llama"].get("n_ctx", 4096))
-LLM_N_THREADS = config["llama"].get("n_threads")  # None = let llama.cpp pick
+_tts_num_threads = int(config.get("tts", {}).get("num_threads", 2))
+TTS_WORKERS = int(config.get("tts", {}).get("workers", 2))
+_total_threads = os.cpu_count() or 1
+_default_n_threads = max(1, _total_threads - _tts_num_threads)
+LLM_N_THREADS = config["llama"].get("n_threads", _default_n_threads)
 LLM_TEMPERATURE = config["llama"].get("temperature")
 LLM_TOP_P = config["llama"].get("top_p")
 LLM_TOP_K = config["llama"].get("top_k")
@@ -62,6 +62,4 @@ TTS_MODEL_DIR = str(
 )
 TTS_MIN_CHARS = int(config.get("tts", {}).get("min_chars", 12))
 TTS_MAX_CHARS = int(config.get("tts", {}).get("max_chars", 140))
-TTS_FIRST_CHUNK_WORDS = int(
-    config.get("tts", {}).get("adaptive_first_chunk_words", 4)
-)
+TTS_FIRST_CHUNK_WORDS = int(config.get("tts", {}).get("adaptive_first_chunk_words", 4))

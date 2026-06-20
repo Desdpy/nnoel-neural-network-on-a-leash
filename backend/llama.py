@@ -65,9 +65,8 @@ def get_llm() -> Llama:
             "n_ctx": LLM_N_CTX,
             "verbose": True,
         }
-        # Cap CPU threads so the TTS worker can use the remaining cores
-        # without thrashing the LLM. ``None`` (config omitted) means
-        # llama-cpp falls back to its own heuristic.
+        # Apply the configured thread count. Defaults to (total cores − TTS
+        # threads) in config.py; override via [llama] n_threads in config.toml.
         if LLM_N_THREADS:
             kwargs["n_threads"] = int(LLM_N_THREADS)
         # Attach a multimodal projection file if one exists on disk

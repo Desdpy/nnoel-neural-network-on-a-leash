@@ -38,7 +38,7 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 - Shadcn UI
 
 ### Backend
-- Python
+- Python 3.11+
 - llama-cpp-python
 - FastAPI
 
