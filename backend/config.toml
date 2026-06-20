@@ -34,7 +34,7 @@ num_threads = 2
 # Number of TTS worker threads that synthesise chunks in parallel.
 # sherpa-onnx releases the GIL, so 2 workers on a 6+ core machine
 # keeps audio well ahead of the LLM. Increase if audio still lags.
-workers = 1
+workers = 2
 # Speaking rate. 1.0 = neutral, >1 faster, <1 slower.
 speed = 1.2
 # Pitch shift in semitones. 0 = neutral, positive = higher, negative = lower.
