@@ -41,6 +41,10 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 - Python 3.11+
 - llama-cpp-python
 - FastAPI
+- Parakeet
+- Silero VAD
+- Piper
+- Gemma 4 E2B
 
 ## Setup
 
