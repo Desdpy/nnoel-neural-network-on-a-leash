@@ -57,6 +57,15 @@ export interface TtsPlayer {
 interface UseTtsPlayerOptions {
   /** Global mute toggle. When false, audio events are dropped on the floor. */
   enabled: boolean;
+  /**
+   * Fired exactly once when the last queued audio chunk finishes
+   * playing *naturally* (i.e. not interrupted by ``stop()``).  Lets
+   * the host kick off follow-up work — e.g. auto-restarting the
+   * microphone for hands-free voice-chat.  The callback fires at
+   * most once per ``feedAudioEvent`` burst, even if the stream
+   * contains many chunks.
+   */
+  onPlaybackEnd?: () => void;
 }
 
 /**
@@ -94,7 +103,7 @@ function tryCreateContext(): AudioContext | null {
   }
 }
 
-export function useTtsPlayer({ enabled }: UseTtsPlayerOptions): TtsPlayer {
+export function useTtsPlayer({ enabled, onPlaybackEnd }: UseTtsPlayerOptions): TtsPlayer {
   const [unavailable, setUnavailable] = useState(false);
   // The scheduled end-time of the last queued source node. Every new
   // buffer we decode is scheduled to start at this timestamp, then we
@@ -112,6 +121,17 @@ export function useTtsPlayer({ enabled }: UseTtsPlayerOptions): TtsPlayer {
   // audio for — we just clear any stale state and move on.
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  // Mirror the latest ``onPlaybackEnd`` so the source ``onended``
+  // handler always invokes the current callback without us having to
+  // teardown and rebuild the AudioBufferSourceNode every render.
+  const onPlaybackEndRef = useRef(onPlaybackEnd);
+  onPlaybackEndRef.current = onPlaybackEnd;
+  // Set to true the moment the first audio chunk of a reply is
+  // scheduled, and reset to false either when the last source ends
+  // naturally (triggering the callback) or when ``stop()`` cancels
+  // playback (which must *not* fire the callback — that would race
+  // with the user's manual interruption).
+  const playbackActiveRef = useRef(false);
 
   const ensureContext = useCallback((): AudioContext | null => {
     const ctx = tryCreateContext();
@@ -164,6 +184,8 @@ export function useTtsPlayer({ enabled }: UseTtsPlayerOptions): TtsPlayer {
     liveSourcesRef.current.clear();
     pendingRef.current.clear();
     nextStartTimeRef.current = 0;
+    // Manual stop must not look like natural playback end.
+    playbackActiveRef.current = false;
   }, []);
 
   const playBuffer = useCallback(
@@ -176,10 +198,26 @@ export function useTtsPlayer({ enabled }: UseTtsPlayerOptions): TtsPlayer {
       source.connect(ctx.destination);
       const start = Math.max(atTime, ctx.currentTime + 0.005);
       source.start(start);
+      // Mark the reply as actively playing; cleared on natural end or
+      // by ``stop()``.  The first chunk of a new reply is what flips
+      // this on — the flag stays on across subsequent chunks because
+      // they all share the same logical "playback session".
+      playbackActiveRef.current = true;
       // Track for ``stop()`` and drop on natural end.
       liveSourcesRef.current.add(source);
       source.onended = () => {
         liveSourcesRef.current.delete(source);
+        // Fire the natural-end callback exactly once, when the last
+        // source of the current reply finishes.  ``stop()`` clears
+        // ``playbackActiveRef`` so manual interruptions don't race
+        // the user's intent.
+        if (
+          liveSourcesRef.current.size === 0
+          && playbackActiveRef.current
+        ) {
+          playbackActiveRef.current = false;
+          onPlaybackEndRef.current?.();
+        }
       };
       // Advance the cursor. This is the time the *next* chunk should
       // start so the chunks sit flush against each other (no silence

@@ -6,15 +6,21 @@ import {
   ArrowRight,
   Volume2,
   VolumeX,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChat } from "../useChat";
 import { useDockviewPanels } from "../DockviewPanels";
 import { useTtsPlayer } from "../useTtsPlayer";
+import { useSttRecorder } from "../useSttRecorder";
 import type { IDockviewPanelProps } from "dockview";
 import ReactMarkdown from "react-markdown";
 import type { Message } from "../types";
+import { createLogger } from "../lib/logger";
+
+const log = createLogger("ChatPanel");
 
 // Markdown components shared by every assistant-style message. Keeps the
 // rendering rules in one place.
@@ -35,7 +41,18 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   // toggle. We keep the toggle in component state so a hot-reload
   // doesn't lose the user's preference.
   const [ttsEnabled, setTtsEnabled] = useState<boolean>(true);
-  const ttsPlayer = useTtsPlayer({ enabled: ttsEnabled });
+  // Auto-listen: when on, the mic re-arms itself automatically each
+  // time the assistant finishes speaking, so the user can keep
+  // having hands-free voice turns without clicking the button for
+  // each one.  Toggled by clicking the mic button (first click =
+  // on, second click = off).  Stays in component state so a hot
+  // reload doesn't lose the user's preference.
+  const [autoListenEnabled, setAutoListenEnabled] = useState<boolean>(false);
+  // Whether the backend reports STT as available.  We fetch the
+  // /config endpoint on mount and use it to decide whether to show
+  // the mic button at all (avoid a confusing UI for users whose
+  // backend doesn't have STT set up).
+  const [sttEnabled, setSttEnabled] = useState<boolean>(false);
   // Track the chat-driven panels that the current assistant turn
   // opened. We close them all together once the reply finishes
   // streaming, so the user gets to see the tool's result alongside
@@ -68,6 +85,68 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     [openNewPanel, getToolPanel],
   );
 
+  // STT recorder.  ``onFinal`` is the auto-submit hook: when the
+  // backend delivers a final transcription, we call ``sendText`` so
+  // the user sees the message appear in the chat history *and* the
+  // LLM response starts streaming back.  Partial text is shown live
+  // in the textarea so the user can see Nnoel "listening" to them.
+  //
+  // We call ``useSttRecorder`` *before* ``useChat`` because the TTS
+  // player (defined below) needs ``stt.start`` in its
+  // ``onPlaybackEnd`` callback.  The recorder's ``onFinal`` callback
+  // goes through ``sendTextRef`` so the actual ``sendText`` (from
+  // ``useChat``) is the one that runs — by the time the user speaks,
+  // ``useChat`` has populated the ref.
+  const stt = useSttRecorder({
+    onFinal: (text) => {
+      // If the LLM is still streaming a previous turn, ``sendText``
+      // handles barge-in by aborting the in-flight generation and
+      // replacing it with the new text.  If the LLM is idle, it just
+      // starts a new turn.
+      sendTextRef.current(text).catch((err) => {
+        log.warn("Auto-submit of STT transcript failed", err);
+      });
+    },
+  });
+  // Refs to the latest auto-listen flag and STT recorder so the
+  // ``onPlaybackEnd`` callback (captured at hook creation) always
+  // sees the current values without forcing the TTS player to
+  // re-mount on every change.
+  const autoListenEnabledRef = useRef(autoListenEnabled);
+  autoListenEnabledRef.current = autoListenEnabled;
+  const sttRef = useRef(stt);
+  sttRef.current = stt;
+  // Ref for ``sendText`` so the STT recorder's ``onFinal`` callback
+  // can invoke it without ``useSttRecorder`` having to be called
+  // *after* ``useChat`` returns — the recorder is created earlier
+  // because the TTS player needs it (via its own callback).
+  const sendTextRef = useRef<(text: string) => Promise<void>>(
+    async () => {
+      // no-op until ``useChat`` populates the ref below
+    },
+  );
+
+  // TTS player.  Declared *after* the STT recorder so the
+  // ``onPlaybackEnd`` callback can call ``stt.start()`` to re-arm
+  // the mic after each reply — but it actually reads from
+  // ``sttRef`` (a ref that's kept in sync) so the order here is
+  // just for readability, not correctness.
+  const ttsPlayer = useTtsPlayer({
+    enabled: ttsEnabled,
+    // When the assistant finishes speaking, re-arm the mic so the
+    // next user utterance is captured without a button click.
+    // Only fires on natural end-of-playback, not on manual stop
+    // (see useTtsPlayer for the playbackActiveRef guard).
+    onPlaybackEnd: () => {
+      if (autoListenEnabledRef.current) {
+        sttRef.current.start().catch((err) => {
+          log.warn("Auto-restart of STT after TTS failed", err);
+        });
+      }
+    },
+  });
+
+  const chat = useChat({ onToolResult }, { ttsPlayer, ttsEnabled });
   const {
     messages,
     inputValue,
@@ -81,7 +160,37 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
     handleKeyDown,
     handleStop,
     handleSubmit,
-  } = useChat({ onToolResult }, { ttsPlayer, ttsEnabled });
+    sendText,
+  } = chat;
+  // Keep ``sendTextRef`` in sync so the STT recorder's ``onFinal``
+  // callback (defined above) can invoke it.  This is the only way
+  // to break the circular dependency between the three hooks —
+  // ``useSttRecorder`` needs ``sendText``, ``useChat`` needs
+  // ``ttsPlayer`` (from ``useTtsPlayer``), and ``useTtsPlayer``
+  // needs ``stt`` (from ``useSttRecorder``).
+  sendTextRef.current = sendText;
+
+  // Probe /config once to learn whether the backend has STT enabled.
+  // The endpoint also returns tools etc., so we keep the response
+  // small and only extract the flag we need.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { stt_enabled?: boolean } | null) => {
+        if (!cancelled && data && typeof data.stt_enabled === "boolean") {
+          setSttEnabled(data.stt_enabled);
+        }
+      })
+      .catch(() => {
+        // If /config fails, leave STT disabled — the user can still
+        // type messages, so this is a graceful degradation rather than
+        // a hard failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const savedScrollTopRef = useRef(0);
 
@@ -182,14 +291,144 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
           <Textarea
             ref={textareaRef}
             className="flex-1 resize-none min-h-10 max-h-35 scrollbar-thin [scrollbar-color:var(--border)_transparent] focus-visible:ring-border/80"
-            placeholder="Message Nnoel…"
+            placeholder={
+              stt.isRecording
+                ? "Listening…"
+                : "Message Nnoel…"
+            }
             rows={1}
+            // While STT is recording, the textarea is disabled and
+            // shows the "Listening…" placeholder — transcription
+            // only happens at the end of speech (no partials), so
+            // there's nothing live to display here.
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            disabled={status === "responding"}
+            disabled={status === "responding" || stt.isRecording}
             autoComplete="off"
           />
+          {/* Microphone toggle.  Visible only when the backend has STT
+              enabled.  Disabled while the LLM is responding: the mic
+              would otherwise pick up the assistant's TTS audio, the
+              VAD would detect it as fresh speech, and the ASR would
+              transcribe the assistant's own voice into a new user
+              message.  ``stt.stop()`` is also called automatically
+              when ``status`` flips to "responding" (see the effect
+              above) so a recording started just before the LLM
+              began generating is torn down promptly.  ``stt.start()``
+              is async because it requests the mic permission — we
+              let the user-facing error state in the hook surface any
+              rejection (handled in the inline error chip below).
+
+              Click behaviour toggles *auto-listen* mode:
+                * first click — turn it on, open the mic
+                * second click (while recording) — stop, turn it off
+                * second click (while idle) — turn it off
+              When auto-listen is on, the mic re-arms itself after
+              every assistant reply (see ``onPlaybackEnd`` above)
+              so the user can have hands-free voice turns.  The
+              button has a subtle ring to signal "auto-listen is on"
+              when no recording is in progress. */}
+          {sttEnabled ? (
+            <div className="relative inline-flex">
+              {/* Audio-level ring around the mic button.  Positioned
+                  absolutely behind the button, scales 1.0→2.2 with
+                  the incoming volume (so the ring "blooms" outward
+                  as the user speaks louder), and flips from
+                  primary-tinted to green when the VAD confirms real
+                  speech (so silence + room noise stay subtle, but
+                  actual speech lights up clearly).  Only visible
+                  while we're recording; otherwise the button shows
+                  its idle / auto-listen state without an extra halo. */}
+              {stt.isRecording ? (
+                <div
+                  aria-hidden
+                  className={
+                    "pointer-events-none absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-75 " +
+                    (stt.isSpeechDetected
+                      ? "bg-green-500/25"
+                      : "bg-primary/20")
+                  }
+                  style={{
+                    transform: `scale(${1 + stt.level * 1.2})`,
+                    opacity: 0.15 + stt.level * 0.55,
+                  }}
+                />
+              ) : null}
+              <Button
+                type="button"
+                size="icon"
+                variant={stt.isRecording ? "destructive" : "ghost"}
+                onClick={() => {
+                  if (stt.isRecording) {
+                    // Stop the current recording and disable
+                    // auto-listen so the mic doesn't re-arm.
+                    stt.stop();
+                    setAutoListenEnabled(false);
+                  } else if (autoListenEnabled) {
+                    // Auto-listen was on but we're idle (between
+                    // turns) — the user wants to turn it off.
+                    setAutoListenEnabled(false);
+                  } else {
+                    // Enable auto-listen and open the mic.  The
+                    // recording itself is what the user actually
+                    // hears, but the flag keeps it re-arming after
+                    // each response.
+                    setAutoListenEnabled(true);
+                    stt.start().catch(() => {
+                      // Permission denied or backend error — turn
+                      // auto-listen back off so we don't try to
+                      // re-arm against a broken mic.
+                      setAutoListenEnabled(false);
+                    });
+                  }
+                }}
+                aria-label={
+                  stt.isRecording
+                    ? "Stop recording"
+                    : autoListenEnabled
+                      ? "Stop hands-free listening"
+                      : "Start hands-free listening"
+                }
+                title={
+                  stt.isRecording
+                    ? stt.isSpeechDetected
+                      ? "Stop recording (assistant is hearing you)"
+                      : "Stop recording (also disables hands-free mode)"
+                    : autoListenEnabled
+                      ? "Hands-free listening on — click to turn off"
+                      : "Start hands-free listening"
+                }
+                className={
+                  stt.isRecording
+                    ? stt.isSpeechDetected
+                      ? "animate-pulse relative z-1 ring-2 ring-green-500/70"
+                      : "animate-pulse relative z-1"
+                    : autoListenEnabled
+                      ? // Subtle "auto-listen is armed" indicator when
+                        // the mic isn't currently recording.  Keeps the
+                        // same dimensions as the recording state so the
+                        // button doesn't shift.
+                        "ring-2 ring-primary/60"
+                      : undefined
+                }
+              >
+              {stt.isRecording ? (
+                <MicOff
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ) : (
+                <Mic
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+            </Button>
+            </div>
+          ) : null}
           {/* Speaker on/off — toggles TTS playback. Disable stops any
               currently playing audio too (we do that in the click
               handler). */}
@@ -250,6 +489,19 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
             </Button>
           )}
         </form>
+        {/* STT error chip.  Shown when the hook reported a failure
+            (mic permission, websocket rejected, etc.) so the user
+            understands why the mic button didn't work.  Hidden when
+            recording is active because errors are cleared on the
+            next ``start()`` attempt. */}
+        {stt.error && !stt.isRecording ? (
+          <div
+            role="status"
+            className="mt-2 text-xs text-destructive wrap-break-word"
+          >
+            Voice input error: {stt.error}
+          </div>
+        ) : null}
       </footer>
     </div>
   );

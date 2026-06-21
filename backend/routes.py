@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import concurrent.futures
 import json
@@ -12,15 +13,17 @@ import tools
 from config import (
     AGENT_NAME,
     AGENT_SYSTEM_PROMPT,
+    STT_ENABLED,
     TTS_FIRST_CHUNK_WORDS,
     TTS_MAX_CHARS,
     TTS_MIN_CHARS,
     TTS_WORKERS,
 )
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from llama import chat_stream, get_llm
 from log import get_logger
+from stt import get_stt, stt_disabled
 from text_chunker import TextChunker
 from tts import get_tts, tts_disabled
 
@@ -125,10 +128,15 @@ def _float_to_int16_le(samples: np.ndarray) -> bytes:
 
 @router.get("/config")
 def get_config():
-    """Return agent display-name and the registered tool list so the UI can show them."""
+    """Return agent display-name, registered tool list, and STT availability.
+
+    The frontend reads ``stt_enabled`` to decide whether to render the
+    microphone button in the chat panel.
+    """
     return {
         "agent": {"name": AGENT_NAME},
         "tools": [t["function"]["name"] for t in tools.TOOLS],
+        "stt_enabled": STT_ENABLED,
     }
 
 
@@ -600,3 +608,122 @@ def run_tool(name: str, arguments: dict[str, Any] = Body(default={})):
         extra = {k: v for k, v in result.items() if k != "text"}
         return {"result": text, "extra": extra}
     return {"result": result, "extra": {}}
+
+
+@router.websocket("/ws/stt")
+async def stt_websocket(websocket: WebSocket) -> None:
+    """Stream audio from the browser, return STT events as JSON.
+
+    Wire format:
+      * Client → server: raw int16-LE mono PCM at 16 kHz, sent as
+        binary WebSocket frames.  Optionally a text frame ``"stop"``
+        to request an early flush.
+      * Server → client: JSON objects, one per frame, ``{"type": ..., "text": ...}``:
+        - ``"speech_start"`` — VAD detected the beginning of an utterance.
+        - ``"final"``       — VAD endpoint or session flush; ``text`` is
+          the final Parakeet transcription of the complete segment.
+          No partial transcriptions are emitted mid-speech; transcription
+          happens once, at the end of each utterance.
+
+    Close codes:
+      * ``1003`` — STT is disabled in config.
+      * ``1013`` — model failed to load (missing files, OOM, etc.).
+      * ``1011`` — internal error during a session.
+    """
+    # Accept FIRST so we can always send a structured close frame.
+    # Calling ``close()`` before ``accept()`` makes Starlette send an
+    # HTTP 403 to the WebSocket upgrade request, which the browser
+    # surfaces as ``code 1006`` ("abnormal closure") with no reason —
+    # useless for the user.  Accepting first lets us deliver a clean
+    # JSON message that the client can render.
+    await websocket.accept()
+
+    if stt_disabled():
+        await websocket.send_json(
+            {"type": "error", "text": "STT is disabled in the server config."}
+        )
+        await websocket.close(code=1003, reason="STT disabled in config")
+        return
+
+    engine = get_stt()
+    if engine is None:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "text": (
+                    "STT model is not available on the server. "
+                    "Check that the model files are downloaded and the "
+                    "server logs for load errors."
+                ),
+            }
+        )
+        await websocket.close(
+            code=1013, reason="STT model not available; check server logs"
+        )
+        return
+
+    session = engine.create_session()
+    # Single-worker pool: STT sessions are stateful (rolling VAD
+    # buffer) so calls into ``feed_audio`` for a given session must be
+    # serialised.  Different sessions run in parallel.
+    loop = asyncio.get_running_loop()
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="stt"
+    )
+
+    async def _send_event(event_type: str, text: str) -> None:
+        try:
+            await websocket.send_json({"type": event_type, "text": text})
+        except Exception as err:  # noqa: BLE001
+            # Client likely closed; nothing useful we can do here.
+            log.debug("Failed to send STT event %r: %s", event_type, err)
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if "bytes" in message and message["bytes"] is not None:
+                chunk = message["bytes"]
+                if not chunk:
+                    continue
+                # VAD + Parakeet transcription are CPU-bound; run
+                # them in the thread pool so the event loop stays
+                # responsive to additional binary frames.
+                events = await loop.run_in_executor(
+                    executor, session.feed_audio, chunk
+                )
+                for event in events:
+                    await _send_event(event.type, event.text)
+            elif "text" in message and message["text"] == "stop":
+                # Client asked for an early flush; break and let the
+                # finally block drain the VAD.
+                break
+    except WebSocketDisconnect:
+        pass
+    except Exception as err:  # noqa: BLE001
+        log.exception("STT WebSocket session crashed")
+        try:
+            await websocket.send_json(
+                {"type": "error", "text": f"STT error: {err}"}
+            )
+            await websocket.close(code=1011, reason=f"STT error: {err}")
+        except Exception:  # noqa: BLE001
+            pass
+        executor.shutdown(wait=False, cancel_futures=True)
+        return
+    finally:
+        # Best-effort flush of any audio the VAD was still holding so
+        # the user doesn't lose their last sentence.  Run the flush in
+        # the same serialised executor so it can't race with feed_audio.
+        try:
+            events = await loop.run_in_executor(executor, session.flush)
+            for event in events:
+                await _send_event(event.type, event.text)
+        except Exception as err:  # noqa: BLE001
+            log.debug("STT flush on close failed: %s", err)
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
+        executor.shutdown(wait=False, cancel_futures=True)

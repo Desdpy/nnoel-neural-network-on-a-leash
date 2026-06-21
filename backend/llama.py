@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 import uuid
 from typing import Any
 
@@ -34,15 +35,27 @@ def _gemma_args_to_json(s: str) -> str:
     followed by ``:``) in double quotes.
     """
     s = s.replace('<|"|>', '"')
-    # Quote unquoted keys. The lookbehind-style constraint is encoded by
+    # Quote unquoted keys.  The lookbehind-style constraint is encoded by
     # requiring `{` or `,` immediately before the word — so a bare word
     # inside an already-quoted string value can't be mistaken for a key.
     s = re.sub(r"([{,]\s*)([A-Za-z_]\w*)(\s*:)", r'\1"\2"\3', s)
     return s
 
 
-# Singleton — the LLM model is loaded once and cached here
+# Singleton — the LLM model is loaded once and cached here.
 _llm: Llama | None = None
+
+# Event that signals "the LLM is idle (not currently generating)".
+# Used to serialise concurrent ``llm.create_chat_completion()`` calls
+# so the second caller waits for the first to finish its current
+# token before starting.  This is what makes barge-in work without
+# a ``GGML_ASSERT`` crash: when the user starts speaking mid-response
+# the new request's ``chat_stream`` blocks here until the old one's
+# ``finally`` block fires and sets the event.  This is not a lock —
+# the LLM is never actually held blocked, it just runs to completion
+# naturally; the new caller just sleeps on the event until then.
+_llm_idle: threading.Event = threading.Event()
+_llm_idle.set()  # Idle at startup.
 
 
 def _make_template_handler(handler: Any, extra_kwargs: dict[str, Any]) -> Any:
@@ -294,9 +307,33 @@ def chat_stream(
        actually parse the text into structured calls.
 
     If the model finishes with a normal text response, only ``token``
-    events are yielded. The caller is responsible for executing any tool
+    events are yielded.  The caller is responsible for executing any tool
     calls and feeding the results back in a follow-up turn.
     """
+    # Wait for any previous LLM call to finish its current token before
+    # we start a new one.  llama-cpp-python's ggml state is not safe
+    # for concurrent inference — two ``create_chat_completion`` calls
+    # in flight at once triggers a ``GGML_ASSERT`` and aborts the
+    # process.  We can't actually cancel the old call (the C-level
+    # ``llama_decode`` is uninterruptible), but the old ``chat_stream``
+    # generator's ``finally`` block will set ``_llm_idle`` as soon as
+    # its current token finishes — so the new caller wakes up the
+    # instant the LLM is actually idle, no fixed sleep needed.
+    #
+    # The 10-second timeout is purely a safety net in case something
+    # goes wrong (e.g. the previous generator never reaches its
+    # ``finally``); if the LLM is taking longer than that to produce a
+    # token, something is already very wrong.
+    if not _llm_idle.wait(timeout=10.0):
+        log.warning(
+            "LLM was still busy after 10s; starting new inference anyway"
+        )
+    # Mark the LLM as busy BEFORE we touch ``create_chat_completion``,
+    # so any concurrent caller that arrives between the ``wait``
+    # returning and the LLM actually starting will block on the next
+    # ``wait`` instead of racing us into a double call.
+    _llm_idle.clear()
+
     llm = get_llm()
 
     completion_kwargs: dict[str, Any] = {
@@ -308,86 +345,99 @@ def chat_stream(
         completion_kwargs["tools"] = tools
         completion_kwargs["tool_choice"] = "auto"
 
-    stream = llm.create_chat_completion(**completion_kwargs)
+    try:
+        stream = llm.create_chat_completion(**completion_kwargs)
 
-    # Tool-call deltas arrive split across chunks. We merge them by their
-    # `index` field so a multi-tool-call response reassembles correctly.
-    pending_tool_calls: list[dict[str, Any]] = []
-    # Only enable the text-based parser when tools are actually being passed,
-    # so the model isn't punished for talking *about* tools in plain text.
-    text_parser = _TextToolCallParser() if tools else None
+        # Tool-call deltas arrive split across chunks. We merge them by their
+        # `index` field so a multi-tool-call response reassembles correctly.
+        pending_tool_calls: list[dict[str, Any]] = []
+        # Only enable the text-based parser when tools are actually being passed,
+        # so the model isn't punished for talking *about* tools in plain text.
+        text_parser = _TextToolCallParser() if tools else None
 
-    for chunk in stream:
-        choice = chunk.get("choices", [{}])[0]  # type: ignore[union-attr]
-        delta = choice.get("delta", {}) or {}
+        for chunk in stream:
+            choice = chunk.get("choices", [{}])[0]  # type: ignore[union-attr]
+            delta = choice.get("delta", {}) or {}
 
-        # --- structured tool-call deltas (preferred path) ---
-        for tc_delta in delta.get("tool_calls") or []:
-            idx = tc_delta.get("index", 0)
-            while len(pending_tool_calls) <= idx:
-                pending_tool_calls.append(
-                    {
-                        "id": "",
-                        "type": "function",
-                        "function": {"name": "", "arguments": ""},
-                    }
-                )
-            tc = pending_tool_calls[idx]
-            # Each field of ChatCompletionMessageToolCallChunk is optional, so
-            # re-accessing via [] after a .get() truthiness check trips the
-            # type checker. Bind to a local first.
-            new_id = tc_delta.get("id")
-            if new_id:
-                tc["id"] = new_id
-            new_type = tc_delta.get("type")
-            if new_type:
-                tc["type"] = new_type
-            fn_delta = tc_delta.get("function")
-            if fn_delta:
-                new_name = fn_delta.get("name")
-                if new_name:
-                    tc["function"]["name"] += new_name
-                new_args = fn_delta.get("arguments")
-                if new_args:
-                    tc["function"]["arguments"] += new_args
+            # --- structured tool-call deltas (preferred path) ---
+            for tc_delta in delta.get("tool_calls") or []:
+                idx = tc_delta.get("index", 0)
+                while len(pending_tool_calls) <= idx:
+                    pending_tool_calls.append(
+                        {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    )
+                tc = pending_tool_calls[idx]
+                # Each field of ChatCompletionMessageToolCallChunk is optional, so
+                # re-accessing via [] after a .get() truthiness check trips the
+                # type checker. Bind to a local first.
+                new_id = tc_delta.get("id")
+                if new_id:
+                    tc["id"] = new_id
+                new_type = tc_delta.get("type")
+                if new_type:
+                    tc["type"] = new_type
+                fn_delta = tc_delta.get("function")
+                if fn_delta:
+                    new_name = fn_delta.get("name")
+                    if new_name:
+                        tc["function"]["name"] += new_name
+                    new_args = fn_delta.get("arguments")
+                    if new_args:
+                        tc["function"]["arguments"] += new_args
 
-        # --- text content (with inline tool-call fallback) ---
-        content = delta.get("content")
-        if not content:
-            continue
-        if text_parser is None:
-            yield ("token", content)
-            continue
+            # --- text content (with inline tool-call fallback) ---
+            content = delta.get("content")
+            if not content:
+                continue
+            if text_parser is None:
+                yield ("token", content)
+                continue
 
-        # Once we've already seen a structured tool call, skip the text parser
-        # so we don't double-detect. The chat template typically strips the
-        # raw tool-call tokens from content in this case, but we belt-and-
-        # brace it.
-        saw_structured = bool(pending_tool_calls)
-        for event in text_parser.feed(content):
-            if event[0] == "token":
-                yield ("token", event[1])
-            elif event[0] == "tool_call" and not saw_structured:
-                name, args = event[1]
-                pending_tool_calls.append(
-                    {
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "arguments": json.dumps(args, ensure_ascii=False),
-                        },
-                    }
-                )
+            # Once we've already seen a structured tool call, skip the text parser
+            # so we don't double-detect. The chat template typically strips the
+            # raw tool-call tokens from content in this case, but we belt-and-
+            # brace it.
+            saw_structured = bool(pending_tool_calls)
+            for event in text_parser.feed(content):
+                if event[0] == "token":
+                    yield ("token", event[1])
+                elif event[0] == "tool_call" and not saw_structured:
+                    name, args = event[1]
+                    pending_tool_calls.append(
+                        {
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(args, ensure_ascii=False),
+                            },
+                        }
+                    )
 
-    # Drain any text the model emitted that wasn't part of a tool call.
-    if text_parser is not None:
-        for event in text_parser.flush():
-            if event[0] == "token" and event[1]:
-                yield ("token", event[1])
+        # Drain any text the model emitted that wasn't part of a tool call.
+        if text_parser is not None:
+            for event in text_parser.flush():
+                if event[0] == "token" and event[1]:
+                    yield ("token", event[1])
 
-    if pending_tool_calls:
-        yield ("tool_calls", pending_tool_calls)
+        if pending_tool_calls:
+            yield ("tool_calls", pending_tool_calls)
+    finally:
+        # Mark the LLM as idle.  This fires on every exit path:
+        #   * normal completion (we fell off the end of the for-loop)
+        #   * ``GeneratorExit`` from a client disconnect (the consumer
+        #     in ``routes.py`` stopped iterating us, so the runtime
+        #     raised ``GeneratorExit`` at the most recent ``yield``)
+        #   * any exception inside the loop
+        # In every case the LLM is now safe for the next caller —
+        # whatever token it was computing has either been delivered
+        # (normal) or is being thrown away (GeneratorExit) and the
+        # ggml state is consistent.
+        _llm_idle.set()
 
 
 def generate_stream(messages: list[dict]):

@@ -77,6 +77,14 @@ export function useChat(
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottomRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Monotonic counter incremented on every ``sendText`` call.  The
+  // current value is captured by the in-flight stream and compared
+  // whenever it would otherwise mutate shared state.  When a new
+  // stream starts (barge-in) the counter advances and any late
+  // events from the old stream are silently dropped — without this
+  // guard, an old ``token`` event arriving after the new user
+  // message is appended would extend the wrong assistant message.
+  const streamGenerationRef = useRef(0);
   // Scroll metrics captured just before older messages are prepended,
   // so we can restore the user's viewport after the DOM grows.
   const prevScrollHeightRef = useRef<number | null>(null);
@@ -220,15 +228,27 @@ export function useChat(
     }
   };
 
-  // Abort an in‑flight streaming response
-  const handleStop = () => {
-    abortControllerRef.current?.abort();
-    // Drop any in-flight or queued TTS audio immediately. The backend
-    // also stops synthesis on the wire (the ``GeneratorExit`` branch
-    // in ``event_stream``), but doing it client-side means the user
-    // doesn't have to wait for the server to notice the disconnect.
+  // Stop whatever is currently happening: tear down the in-flight
+  // fetch (the backend's ``event_stream`` will hit ``GeneratorExit``
+  // and clean up) and immediately mute any in-flight or queued TTS
+  // audio so the user doesn't hear leftover speech while a new
+  // turn is being prepared.  This is what the Stop button does, and
+  // it's also what barge-in (the new-message-during-response path
+  // in ``sendText``) does before starting a new request — the two
+  // paths share the exact same "stop the previous action" behavior.
+  const stopPreviousAction = () => {
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch {
+        // The controller may already be settled; ignore.
+      }
+    }
     options.ttsPlayer?.stop();
   };
+
+  // The Stop button — exposed via the hook's return value.
+  const handleStop = stopPreviousAction;
 
   // Latest callbacks, kept in a ref so we can invoke them from the
   // streaming loop without re-creating ``applyEvent`` on every parent
@@ -241,7 +261,18 @@ export function useChat(
   // - `tool_call` / `tool_result` append dedicated entries to the
   //   message list AND fire the host component's callbacks (which open
   //   a dedicated panel for the tool in parallel)
-  const applyEvent = (event: StreamEvent) => {
+  // ``generation`` is the stream-generation captured at stream start;
+  // stale events from an aborted previous stream are dropped so a
+  // late ``token`` can't extend the new assistant message.
+  // Wrapped in ``useCallback`` so ``sendText`` (which depends on it)
+  // doesn't get re-created on every parent render.  No external state
+  // is captured — all state goes through the setters and ``callbacksRef``.
+  const applyEvent = useCallback((event: StreamEvent, generation: number) => {
+    if (generation !== streamGenerationRef.current) {
+      // This event is from a stream that was already superseded
+      // (barge-in replaced it).  Drop it on the floor.
+      return;
+    }
     if (event.type === "tool_call" && event.name) {
       setMessages((prev) => [
         ...prev,
@@ -303,110 +334,191 @@ export function useChat(
       }
       return prev;
     });
-  };
+  }, []);
 
-  // Send the user's message, then stream the assistant's reply event by event
-  // from a POST /chat endpoint (NDJSON), updating the message list for each.
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = inputValue.trim();
-    if (!text) return;
+  // Core send-and-stream logic, parameterised on the text being sent.
+  // Both the form submit handler and the STT auto-submit path call
+  // this; keeping it as a single function means there's exactly one
+  // place that owns the abort controller, the AudioContext resume,
+  // and the streaming event loop.
+  //
+  // Barge-in: if a request is already in flight, the new text
+  // aborts the old request, drops any in-flight TTS audio, and
+  // supersedes the old stream.  The previously-appended user
+  // message stays in the chat history (so the user can see what
+  // they asked); only the partial assistant reply is replaced.
+  const sendText = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
 
-    const userMessage: Message = { id: uid(), role: "user", content: text };
+      // --- Barge-in: cancel the in-flight stream if any -----------------
+      // Same as the Stop button: tear down the in-flight fetch and
+      // mute the TTS so the user doesn't hear leftover audio over
+      // the new request.  The generation bump below makes any late
+      // events from the old stream (already in the JS event loop or
+      // the read buffer) be silently dropped by ``applyEvent``.
+      stopPreviousAction();
+      streamGenerationRef.current += 1;
+      const myGeneration = streamGenerationRef.current;
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInputValue("");
-    isAtBottomRef.current = true;
-    setStatus("responding");
+      const userMessage: Message = {
+        id: uid(),
+        role: "user",
+        content: trimmed,
+      };
 
-    abortControllerRef.current = new AbortController();
+      setMessages((prev) => [...prev, userMessage]);
+      setInputValue("");
+      isAtBottomRef.current = true;
+      setStatus("responding");
 
-    // Make sure the AudioContext exists and is resumed *before* the
-    // first audio event arrives. ``handleSubmit`` runs from a click
-    // event, so we have a transient user activation and ``resume()``
-    // will succeed. ``ensureContext()`` is a no-op if TTS is disabled
-    // or Web Audio is unavailable on this browser.
-    const ttsPlayer = options.ttsPlayer ?? null;
-    if (ttsPlayer && (options.ttsEnabled ?? true)) {
-      ttsPlayer.ensureContext();
-    }
+      abortControllerRef.current = new AbortController();
 
-    try {
-      const response = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-        signal: abortControllerRef.current.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server ${response.status}`);
+      // Make sure the AudioContext exists and is resumed *before* the
+      // first audio event arrives. ``sendText`` is called from a click
+      // event (form submit) or a user-gesture-bearing mic click, so
+      // we have a transient user activation and ``resume()`` will
+      // succeed. ``ensureContext()`` is a no-op if TTS is disabled
+      // or Web Audio is unavailable on this browser.
+      const ttsPlayer = options.ttsPlayer ?? null;
+      if (ttsPlayer && (options.ttsEnabled ?? true)) {
+        ttsPlayer.ensureContext();
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      try {
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: trimmed }),
+          signal: abortControllerRef.current.signal,
+        });
 
-      while (reader) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        if (!response.ok) {
+          throw new Error(`Server ${response.status}`);
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        // Process every complete newline-delimited JSON line. Anything left in
-        // the buffer is the start of the next line and stays for the next read.
-        let nl = buffer.indexOf("\n");
-        while (nl !== -1) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (line) {
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (reader) {
+          // Barge-in safety check: if this stream has been
+          // superseded, exit the loop without touching shared
+          // state.  The AbortError that ``reader.read()`` will
+          // raise is the primary signal, but checking up front
+          // also covers the case where we've been superseded
+          // before the next chunk arrives.
+          if (myGeneration !== streamGenerationRef.current) {
             try {
-              const event = JSON.parse(line) as StreamEvent;
-              applyEvent(event);
-              if (ttsPlayer && (options.ttsEnabled ?? true)) {
-                if (event.type === "audio" && event.data) {
-                  // The wire payload carries base64-encoded int16 LE PCM.
-                  // ``atob`` returns a binary string; we copy it into a
-                  // fresh ``ArrayBuffer`` because ``decodeAudioData``
-                  // wants an ArrayBuffer, not a binary string.
-                  const binary = atob(event.data);
-                  const bytes = new Uint8Array(binary.length);
-                  for (let i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i);
-                  }
-                  ttsPlayer.feedAudioEvent({
-                    type: "audio",
-                    seq: event.seq ?? 0,
-                    data: bytes.buffer,
-                    sr: event.sr ?? DEFAULT_TTS_SR,
-                    ch: 1,
-                    fmt: "s16le",
-                  });
-                } else if (event.type === "audio_end") {
-                  ttsPlayer.feedAudioEvent({ type: "audio_end" });
-                }
-              }
-            } catch (err) {
-              // Malformed NDJSON line — log it so we can diagnose bad payloads.
-              // The next line is most likely valid, so we keep reading.
-              log.warn("Skipping malformed NDJSON line", err, { line });
+              await reader.cancel();
+            } catch {
+              // ignore
             }
+            break;
           }
-          nl = buffer.indexOf("\n");
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          // Process every complete newline-delimited JSON line. Anything left in
+          // the buffer is the start of the next line and stays for the next read.
+          let nl = buffer.indexOf("\n");
+          while (nl !== -1) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (line) {
+              try {
+                const event = JSON.parse(line) as StreamEvent;
+                // ``applyEvent`` itself drops events from stale
+                // generations, but we also check here so we don't
+                // feed audio events into a TTS player we already
+                // cleared.
+                if (myGeneration === streamGenerationRef.current) {
+                  applyEvent(event, myGeneration);
+                  if (ttsPlayer && (options.ttsEnabled ?? true)) {
+                    if (event.type === "audio" && event.data) {
+                      // The wire payload carries base64-encoded int16 LE PCM.
+                      // ``atob`` returns a binary string; we copy it into a
+                      // fresh ``ArrayBuffer`` because ``decodeAudioData``
+                      // wants an ArrayBuffer, not a binary string.
+                      const binary = atob(event.data);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                      }
+                      ttsPlayer.feedAudioEvent({
+                        type: "audio",
+                        seq: event.seq ?? 0,
+                        data: bytes.buffer,
+                        sr: event.sr ?? DEFAULT_TTS_SR,
+                        ch: 1,
+                        fmt: "s16le",
+                      });
+                    } else if (event.type === "audio_end") {
+                      ttsPlayer.feedAudioEvent({ type: "audio_end" });
+                    }
+                  }
+                }
+              } catch (err) {
+                // Malformed NDJSON line — log it so we can diagnose bad payloads.
+                // The next line is most likely valid, so we keep reading.
+                log.warn("Skipping malformed NDJSON line", err, { line });
+              }
+            }
+            nl = buffer.indexOf("\n");
+          }
+        }
+      } catch (err) {
+        // Don't show an error if the user manually aborted the
+        // stream, or if this stream was superseded by a barge-in.
+        //
+        // The aborted-stream case produces two distinct error
+        // shapes depending on how the connection tore down:
+        //   * ``AbortError`` — raised by ``fetch`` when its signal
+        //     is aborted client-side (manual Stop button).
+        //   * ``TypeError: network error`` — raised by the browser
+        //     when the server closes the chunked HTTP response
+        //     without finishing (the backend's ``GeneratorExit``
+        //     path).  This is what happens on barge-in.
+        // Both should be silently dropped; the user is no longer
+        // waiting on this stream.
+        const isAbort =
+          err instanceof DOMException && err.name === "AbortError";
+        const isNetworkDrop =
+          err instanceof TypeError && /network/i.test(err.message);
+        if (
+          isAbort
+          || isNetworkDrop
+          || abortControllerRef.current?.signal.aborted
+          || myGeneration !== streamGenerationRef.current
+        ) {
+          return;
+        }
+        const errorMessage =
+          err instanceof Error ? err.message : "Unknown error";
+        log.error("Chat stream failed", err, { errorMessage });
+        setMessages((prev) => [
+          ...prev,
+          { id: uid(), role: "assistant", content: `Error: ${errorMessage}` },
+        ]);
+      } finally {
+        // Only the *latest* stream is allowed to flip the status
+        // back to "connected".  An aborted older stream's finally
+        // must not undo the new stream's "responding" state.
+        if (myGeneration === streamGenerationRef.current) {
+          abortControllerRef.current = null;
+          setStatus("connected");
         }
       }
-    } catch (err) {
-      // Don't show an error if the user manually aborted the stream
-      if (abortControllerRef.current?.signal.aborted) return;
-      const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      log.error("Chat stream failed", err, { errorMessage });
-      setMessages((prev) => [
-        ...prev,
-        { id: uid(), role: "assistant", content: `Error: ${errorMessage}` },
-      ]);
-    } finally {
-      abortControllerRef.current = null;
-      setStatus("connected");
-    }
+    },
+    [applyEvent, options],
+  );
+
+  // Form submit handler.  Just forwards the textarea value to ``sendText``.
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendText(inputValue);
   };
 
   return {
@@ -422,5 +534,6 @@ export function useChat(
     handleKeyDown,
     handleStop,
     handleSubmit,
+    sendText,
   };
 }

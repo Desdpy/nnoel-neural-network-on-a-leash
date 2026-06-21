@@ -39,6 +39,24 @@ RUN mkdir -p /app/models/tts/vits-piper-en_US-amy-medium && \
     rm /tmp/piper-tts.tar.bz2 && \
     ls -lh /app/models/tts/vits-piper-en_US-amy-medium/
 
+# Download the Silero VAD model used by the STT pipeline.  This is a
+# tiny ~2 MB ONNX file that sherpa-onnx uses for voice-activity
+# detection — it gates when the ASR runs so we don't transcribe
+# silence.
+RUN mkdir -p /app/models/stt && \
+    curl -#L -o /app/models/stt/silero_vad.onnx \
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+
+# Download the Parakeet TDT 0.6B v3 int8 ASR model.  Supports 25
+# European languages (en, de, fr, es, it, pt, nl, pl, ru, uk, …) with
+# state-of-the-art accuracy (~2% WER on English).  Extracted size is
+# ~640 MB and it runs at RTF ~0.2 on a single CPU thread.
+RUN curl -#L -o /tmp/parakeet-stt.tar.bz2 \
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2" && \
+    tar xf /tmp/parakeet-stt.tar.bz2 -C /app/models/stt/ && \
+    rm /tmp/parakeet-stt.tar.bz2 && \
+    ls -lh /app/models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/
+
 EXPOSE 5000
 
 CMD ["python3", "backend/server.py"]

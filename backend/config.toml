@@ -19,6 +19,43 @@ top_k = 64
 min_p = 0.0
 repeat_penalty = 1.0      # discourages repeating the same tokens
 
+# Speech-to-text (Parakeet TDT 0.6B v3 int8 via sherpa-onnx).
+# Set ``enabled = false`` to disable STT entirely (the mic button
+# is hidden in the UI). Requires the Silero VAD model file and
+# the Parakeet ONNX model directory under ``model_dir``.
+[stt]
+enabled = true
+# Number of ONNX Runtime intra-op threads for ASR inference.
+# Combined with [llama] n_threads and [tts] num_threads this should
+# not exceed the host's total core count.  Parakeet int8 runs at
+# RTF ~0.2 on a single modern x86 CPU thread.
+num_threads = 1
+# Model type: "parakeet" (sherpa-onnx's NeMo Parakeet TDT 0.6B v3 int8).
+model_type = "parakeet"
+# Path to the STT model directory (relative to project root or absolute).
+# Must contain encoder.int8.onnx, decoder.int8.onnx, joiner.int8.onnx, tokens.txt.
+model_dir = "models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+# Path to the Silero VAD model file (relative to project root or absolute).
+vad_model = "models/stt/silero_vad.onnx"
+# Language for the ASR model. Parakeet v3 supports 25 European languages:
+# en, de, bg, hr, cs, da, nl, et, fi, fr, el, hu, it, lv, lt, mt,
+# pl, pt, ro, sk, sl, es, sv, ru, uk
+language = "en"
+# --- VAD parameters ---
+# Speech probability threshold (0.0–1.0). Higher = less sensitive.
+# 0.5 is the Sherpa default but tends to fire on brief background
+# sounds (keyboard clicks, chair creaks, breath). 0.6 cuts most of
+# those without dropping normal conversational speech.
+vad_threshold = 0.5
+# Seconds of trailing silence after speech before triggering an endpoint.
+vad_min_silence_duration = 0.8
+# Minimum seconds of speech to consider a real segment.  Anything
+# shorter is almost certainly noise; raising this from 0.25 to
+# 0.4 suppresses VAD false positives.
+vad_min_speech_duration = 0.4
+# Maximum seconds of a single speech segment; forces a flush past this.
+vad_max_speech_duration = 30.0
+
 # Text-to-speech (Piper via sherpa-onnx).
 # The ONNX model files live under ``model_dir``. Set ``enabled = false``
 # to skip TTS entirely (the frontend then never receives audio events).
