@@ -257,16 +257,16 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   }, [api, textareaRef, messagesContainerRef]);
 
   return (
-    <div data-panel-id="chat" className="chat-panel">
+    <div data-panel-id="chat" className="flex flex-col h-full text-text-base">
       {loading ? (
-        <div className="chat-panel__loading">
+        <div className="flex-1 flex items-center justify-center text-muted-fg">
           Loading chat…
         </div>
       ) : (
-      <div ref={messagesContainerRef} className="chat-panel__messages">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto py-4 px-4 flex flex-col gap-3 scrollbar-thin [scrollbar-color:var(--border)_transparent]">
         {/* Spinner shown at the very top while a page of older messages is loading. */}
         {loadingMore && (
-          <div className="chat-panel__loading-more">
+          <div className="self-center text-xs text-muted-fg py-2">
             Loading older messages…
           </div>
         )}
@@ -274,10 +274,10 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
 
         {/* Animated "typing" dots while the LLM is generating a response */}
         {status === "responding" && (
-          <div className="typing-dots">
-            <span className="typing-dots__dot" />
-            <span className="typing-dots__dot" />
-            <span className="typing-dots__dot" />
+          <div className="flex gap-1 px-4 py-3 self-start bg-surface-raised rounded-2xl rounded-bl-sm">
+            <span className="w-2 h-2 bg-muted-fg rounded-full animate-typing" />
+            <span className="w-2 h-2 bg-muted-fg rounded-full animate-typing [animation-delay:0.2s]" />
+            <span className="w-2 h-2 bg-muted-fg rounded-full animate-typing [animation-delay:0.4s]" />
           </div>
         )}
 
@@ -286,11 +286,11 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
       )}
 
       {/* Textarea + Send button */}
-      <footer className="chat-panel__footer">
-        <form className="chat-panel__form" onSubmit={handleSubmit}>
+      <footer className="px-4 py-3 bg-surface-raised border-t border-border shrink-0">
+        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
           <Textarea
             ref={textareaRef}
-            className="flex-1 resize-none"
+            className="flex-1 resize-none min-h-10 max-h-35 scrollbar-thin [scrollbar-color:var(--border)_transparent] focus-visible:ring-border/80"
             placeholder={
               stt.isRecording
                 ? "Listening…"
@@ -308,29 +308,29 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
             autoComplete="off"
           />
           {/* Microphone toggle.  Visible only when the backend has STT
-               enabled.  Disabled while the LLM is responding: the mic
-               would otherwise pick up the assistant's TTS audio, the
-               VAD would detect it as fresh speech, and the ASR would
-               transcribe the assistant's own voice into a new user
-               message.  ``stt.stop()`` is also called automatically
-               when ``status`` flips to "responding" (see the effect
-               above) so a recording started just before the LLM
-               began generating is torn down promptly.  ``stt.start()``
-               is async because it requests the mic permission — we
-               let the user-facing error state in the hook surface any
-               rejection (handled in the inline error chip below).
+              enabled.  Disabled while the LLM is responding: the mic
+              would otherwise pick up the assistant's TTS audio, the
+              VAD would detect it as fresh speech, and the ASR would
+              transcribe the assistant's own voice into a new user
+              message.  ``stt.stop()`` is also called automatically
+              when ``status`` flips to "responding" (see the effect
+              above) so a recording started just before the LLM
+              began generating is torn down promptly.  ``stt.start()``
+              is async because it requests the mic permission — we
+              let the user-facing error state in the hook surface any
+              rejection (handled in the inline error chip below).
 
-               Click behaviour toggles *auto-listen* mode:
-                 * first click — turn it on, open the mic
-                 * second click (while recording) — stop, turn it off
-                 * second click (while idle) — turn it off
-               When auto-listen is on, the mic re-arms itself after
-               every assistant reply (see ``onPlaybackEnd`` above)
-               so the user can have hands-free voice turns.  The
-               button has a subtle ring to signal "auto-listen is on"
-               when no recording is in progress. */}
+              Click behaviour toggles *auto-listen* mode:
+                * first click — turn it on, open the mic
+                * second click (while recording) — stop, turn it off
+                * second click (while idle) — turn it off
+              When auto-listen is on, the mic re-arms itself after
+              every assistant reply (see ``onPlaybackEnd`` above)
+              so the user can have hands-free voice turns.  The
+              button has a subtle ring to signal "auto-listen is on"
+              when no recording is in progress. */}
           {sttEnabled ? (
-            <div className="chat-panel__mic-wrapper">
+            <div className="relative inline-flex">
               {/* Audio-level ring around the mic button.  Positioned
                   absolutely behind the button, scales 1.0→2.2 with
                   the incoming volume (so the ring "blooms" outward
@@ -343,7 +343,12 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
               {stt.isRecording ? (
                 <div
                   aria-hidden
-                  className={`mic-ring ${stt.isSpeechDetected ? "mic-ring--speech" : "mic-ring--idle"}`}
+                  className={
+                    "pointer-events-none absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-75 " +
+                    (stt.isSpeechDetected
+                      ? "bg-green-500/25"
+                      : "bg-primary/20")
+                  }
                   style={{
                     transform: `scale(${1 + stt.level * 1.2})`,
                     opacity: 0.15 + stt.level * 0.55,
@@ -354,10 +359,6 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
                 type="button"
                 size="icon"
                 variant={stt.isRecording ? "destructive" : "ghost"}
-                data-recording={stt.isRecording}
-                data-speech={stt.isSpeechDetected}
-                data-auto-listen={autoListenEnabled}
-                className="btn-mic"
                 onClick={() => {
                   if (stt.isRecording) {
                     // Stop the current recording and disable
@@ -397,6 +398,19 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
                     : autoListenEnabled
                       ? "Hands-free listening on — click to turn off"
                       : "Start hands-free listening"
+                }
+                className={
+                  stt.isRecording
+                    ? stt.isSpeechDetected
+                      ? "animate-pulse relative z-1 ring-2 ring-green-500/70"
+                      : "animate-pulse relative z-1"
+                    : autoListenEnabled
+                      ? // Subtle "auto-listen is armed" indicator when
+                        // the mic isn't currently recording.  Keeps the
+                        // same dimensions as the recording state so the
+                        // button doesn't shift.
+                        "ring-2 ring-primary/60"
+                      : undefined
                 }
               >
               {stt.isRecording ? (
@@ -483,7 +497,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
         {stt.error && !stt.isRecording ? (
           <div
             role="status"
-            className="chat-panel__error"
+            className="mt-2 text-xs text-destructive wrap-break-word"
           >
             Voice input error: {stt.error}
           </div>
@@ -502,7 +516,7 @@ function renderMessage(msg: Message) {
     return (
       <div
         key={msg.id}
-        className="message message--user"
+        className="max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap self-end bg-surface-deep rounded-br-sm"
       >
         <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
       </div>
@@ -513,7 +527,7 @@ function renderMessage(msg: Message) {
     return (
       <div
         key={msg.id}
-        className="message message--assistant"
+        className="max-w-[75%] px-4 py-3 rounded-2xl leading-relaxed wrap-break-word whitespace-pre-wrap self-start bg-surface-raised rounded-bl-sm"
       >
         <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
       </div>
@@ -529,12 +543,12 @@ function renderMessage(msg: Message) {
     return (
       <div
         key={msg.id}
-        className="message message--tool"
+        className="self-start max-w-[75%] text-xs text-muted-fg bg-surface-raised/60 border border-border rounded-2xl rounded-bl-sm px-3 py-2 font-mono flex items-start gap-2"
       >
-        <Wrench className="message__tool-icon" aria-hidden="true" />
-        <span>
-          <span className="message__tool-name">{msg.name}</span>
-          {args ? <span className="message__tool-args">({args})</span> : null}
+        <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span className="wrap-break-word">
+          <span className="text-text-base">{msg.name}</span>
+          {args ? <span className="text-muted-fg">({args})</span> : null}
         </span>
       </div>
     );
@@ -544,10 +558,10 @@ function renderMessage(msg: Message) {
     return (
       <div
         key={msg.id}
-        className="message message--tool message--tool-result"
+        className="self-start max-w-[75%] text-xs text-muted-fg bg-surface-raised/40 border border-border rounded-2xl rounded-bl-sm px-3 py-2 font-mono flex items-start gap-2"
       >
-        <ArrowRight className="message__tool-icon" aria-hidden="true" />
-        <span className="message__tool-content">{msg.content}</span>
+        <ArrowRight className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span className="wrap-break-word whitespace-pre-wrap">{msg.content}</span>
       </div>
     );
   }

@@ -376,7 +376,7 @@ export function NeuralNetworkBackground() {
   return (
     <canvas
       ref={canvasRef}
-      className="fill"
+      className="absolute top-0 right-0"
       style={{ zIndex: -1 }}
     />
   );

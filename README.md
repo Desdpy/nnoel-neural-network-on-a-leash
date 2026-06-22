@@ -184,9 +184,9 @@ export default {
 } satisfies FrontendPlugin;
 ```
 
-**Why `../../types`?** When the container's entrypoint runs `backend/sync_plugins.sh`, it copies your `plugins/<id>/frontend/` into `frontend/src/plugins/user/<id>/` (inside the Vite project, so module resolution works). The relative `../../types` resolves correctly from that destination location.
+**Why `../../types`?** The frontend registry's Vite glob walks up to the repo root and resolves `plugins/*/frontend/index.ts` directly — no copy step is needed. The relative `../../types` resolves correctly from the plugin's source location (`plugins/<id>/frontend/`), and the `@` alias in `vite.config.ts` is an absolute path so `@/lib/logger`, `@/components/ui/...`, and `@/plugins/types` all resolve to files under `frontend/src/` regardless of where the plugin lives on disk.
 
-The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("./*/index.ts", { eager: true })` over `frontend/src/plugins/user/` (the normalisation target) to pick up every plugin's `index.ts` at build time and produces `pluginComponents` (merged into Dockview's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by `TaskBar`).
+The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("../../../plugins/*/frontend/index.ts", { eager: true })` to pick up every plugin's `index.ts` at build time and produces `pluginComponents` (merged into Dockview's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by `TaskBar`).
 
 Supported taskbar icons (by name): `clock`, `cloud`, `search`, `notebook`, `note`, `globe`. Add more by extending the `iconRegistry` in `frontend/src/components/TaskBar.tsx`.
 
@@ -197,7 +197,7 @@ Supported taskbar icons (by name): `clock`, `cloud`, `search`, `notebook`, `note
 
 #### Activate
 
-**With the prebuilt image (`docker-compose.yml`)**: drop the folder, restart the container, refresh the browser. The entrypoint copies the frontend half into the Vite tree, rebuilds the bundle (~3 s when a frontend plugin is present, zero overhead otherwise), then the backend's Python registry picks up the backend half on import. **No `docker build` needed.**
+**With the prebuilt image (`docker-compose.yml`)**: drop the folder, restart the container, refresh the browser. The entrypoint detects the mounted frontend plugins and rebuilds the bundle (~3 s when a frontend plugin is present, zero overhead otherwise), then the backend's Python registry picks up the backend half on import. **No `docker build` needed.**
 
 ```bash
 mkdir -p plugins/weather/{backend,frontend}
@@ -208,11 +208,9 @@ docker compose restart nnoel
 
 **With the from-source image (`docker-compose.prod.yml`)**: same as above, but you can also bake the plugin into the image by re-running `docker compose -f docker-compose.prod.yml up --build`.
 
-**Local dev (no Docker)**: run the sync once, then the build, then the backend.
+**Local dev (no Docker)**: just build and run — the Vite glob picks plugins up directly from `plugins/`, no sync needed.
 
 ```bash
-PLUGINS_DIR="$PWD/plugins" FRONTEND_USER_DIR="$PWD/frontend/src/plugins/user" \
-    bash backend/sync_plugins.sh
 cd frontend && npm run build
 cd .. && python3 backend/server.py
 ```
@@ -220,7 +218,7 @@ cd .. && python3 backend/server.py
 ### Discovery mechanism (summary)
 
 - **Backend**: `backend/plugins/registry.py` walks `plugins/<id>/backend/plugin.py` at server startup, imports each as `nnoel_plugins.<id>.backend.plugin` via a synthetic parent module, and aggregates.
-- **Frontend**: the container's `backend/entrypoint.sh` calls `backend/sync_plugins.sh` to copy `plugins/<id>/frontend/` into `frontend/src/plugins/user/<id>/` (inside the Vite project). Vite's `import.meta.glob` picks up the `index.ts` files at build time. Local dev uses the same `sync_plugins.sh` invoked manually.
+- **Frontend**: `frontend/src/plugins/registry.ts` uses Vite's `import.meta.glob("../../../plugins/*/frontend/index.ts")` to pick up every plugin's `index.ts` at build time. The same glob works in dev, `startProd.sh`, and the container — in Docker the `./plugins:/app/plugins` volume mount makes the host's plugin dir visible at the path the glob expects.
 
 ### URL namespace
 

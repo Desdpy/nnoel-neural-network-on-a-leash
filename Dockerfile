@@ -45,9 +45,9 @@ COPY --from=frontend-builder /build/frontend/dist frontend/dist/
 # Install Python dependencies.
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Entrypoint: normalise user plugins (copy frontend halves into the
-# Vite tree), optionally rebuild the bundle, then exec the backend.
-RUN chmod +x backend/entrypoint.sh backend/sync_plugins.sh
+# Entrypoint: optionally rebuild the bundle to pick up mounted
+# user plugins, then exec the backend.
+RUN chmod +x backend/entrypoint.sh
 
 # Download the GGUF model + multimodal projection from Hugging Face
 RUN mkdir -p /app/models && \

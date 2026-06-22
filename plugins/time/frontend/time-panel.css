@@ -6,22 +6,18 @@
  * imports it, Vite bundles it into the output, and the classes are
  * scoped to this plugin's panel only.
  *
- * Design tokens (--fg, --border, --radius, --gap-*, --bg-elevated, etc.)
- * come from the main app's ``src/styles/tokens.css`` which is imported
- * by the global stylesheet before this one loads. So every visual
- * choice here is consistent with the rest of the app without
- * duplicating values.
+ * Design tokens come from the main app's ``src/index.css`` (the
+ * shadcn-style ``--background`` / ``--foreground`` / ``--card`` /
+ * ``--muted`` / ``--destructive`` / ``--border`` / ``--radius`` set
+ * that ``shadcn/tailwind.css`` defines). Everything visual here is
+ * consistent with the rest of the app without duplicating values.
  */
-
-/* =====================================================================
-   PANEL LAYOUT
-   ===================================================================== */
 
 .time-panel {
     display: flex;
     flex-direction: column;
     height: 100%;
-    color: var(--fg);
+    color: var(--foreground);
     position: relative;
     overflow: hidden;
 }
@@ -29,10 +25,10 @@
 .time-panel__scroll {
     flex: 1;
     overflow-y: auto;
-    padding: var(--gap-lg);
+    padding: 1rem;
     display: flex;
     flex-direction: column;
-    gap: var(--gap-lg);
+    gap: 1rem;
 }
 
 /* =====================================================================
@@ -48,36 +44,36 @@
     top: 0.625rem;
     width: 1rem;
     height: 1rem;
-    color: var(--fg-muted);
+    color: var(--muted-foreground);
     pointer-events: none;
     z-index: 10;
 }
 .time-panel__textarea {
     padding-left: 2rem;
-    min-height: var(--chat-input-min-h);
-    max-height: var(--chat-input-max-h);
+    min-height: 2.5rem;
+    max-height: 8rem;
 }
 
 .time-panel__dropdown {
     z-index: 9999;
     overflow-y: auto;
-    background: var(--bg-elevated);
+    background: var(--popover);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
 }
 .time-panel__dropdown-item {
-    padding: var(--gap-sm) var(--gap-md);
+    padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: var(--gap-sm);
-    color: var(--fg-muted);
+    gap: 0.5rem;
+    color: var(--muted-foreground);
 }
 .time-panel__dropdown-item--highlighted {
-    background: var(--bg-sunken);
-    color: var(--fg);
+    background: var(--muted);
+    color: var(--foreground);
 }
 .time-panel__dropdown-icon {
     width: 0.875rem;
@@ -95,26 +91,26 @@
     background: color-mix(in oklch, var(--destructive) 10%, transparent);
     border: 1px solid color-mix(in oklch, var(--destructive) 30%, transparent);
     border-radius: var(--radius);
-    padding: var(--gap-sm) var(--gap-md);
+    padding: 0.5rem 0.75rem;
 }
 
 .time-panel__result {
-    background: var(--bg-elevated);
+    background: var(--card);
     border: 1px solid var(--border);
     border-radius: 1.25rem;
-    padding: var(--gap-lg) var(--gap-lg) var(--gap-lg) var(--gap-lg);
+    padding: 1rem;
     display: flex;
     flex-direction: column;
-    gap: var(--gap-md);
+    gap: 0.75rem;
 }
 .time-panel__result-header {
     display: flex;
     align-items: center;
-    gap: var(--gap-sm);
+    gap: 0.5rem;
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--fg-muted);
+    color: var(--muted-foreground);
 }
 .time-panel__result-header-icon {
     width: 0.875rem;
@@ -129,31 +125,31 @@
 .time-panel__date {
     display: flex;
     align-items: center;
-    gap: var(--gap-sm);
+    gap: 0.5rem;
     font-size: 0.875rem;
-    color: var(--fg-muted);
+    color: var(--muted-foreground);
 }
 .time-panel__tz-badge {
     padding: 0.125rem 0.375rem;
-    border-radius: var(--radius-sm);
-    background: var(--bg-sunken);
+    border-radius: calc(var(--radius) / 2);
+    background: var(--muted);
     border: 1px solid var(--border);
     font-size: 0.75rem;
-    font-family: var(--font-mono);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 .time-panel__date-sep {
-    color: var(--fg-muted);
+    color: var(--muted-foreground);
 }
 
 .time-panel__error-result {
     font-size: 0.875rem;
-    color: var(--fg-muted);
-    background: color-mix(in oklch, var(--bg-elevated) 60%, transparent);
+    color: var(--muted-foreground);
+    background: color-mix(in oklch, var(--card) 60%, transparent);
     border: 1px solid var(--border);
     border-radius: 1.25rem;
-    padding: var(--gap-md) var(--gap-lg);
+    padding: 0.75rem 1rem;
     overflow-wrap: break-word;
     white-space: pre-wrap;
 }

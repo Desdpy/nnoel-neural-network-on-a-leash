@@ -32,14 +32,16 @@ level — the registry creates a synthetic parent module
 imports like ``from .tool import SCHEMA`` work.
 
 **Frontend half:**
-The frontend code (``plugins/<id>/frontend/``) is NOT scanned by this
-registry — it lives outside the Vite project, so Vite/TypeScript can't
-resolve ``node_modules`` from there. Instead, the container's
-``backend/entrypoint.sh`` runs ``backend/sync_plugins.sh`` which copies
-each ``plugins/<id>/frontend/`` into ``frontend/src/plugins/user/<id>/``
-(inside the Vite project) before the frontend bundle is rebuilt. The
-Vite glob then picks the panels up normally. Local dev uses the same
-``sync_plugins.sh`` (called from ``start.sh`` or run manually).
+The frontend code (``plugins/<id>/frontend/``) lives outside the
+Vite project, so the Vite glob in ``frontend/src/plugins/registry.ts``
+walks up to the repo root (``../../../plugins/*/frontend/index.ts``)
+and bundles the plugin files directly — no copy/sync step is
+needed. The ``@`` alias in ``vite.config.ts`` is resolved to an
+absolute path (``frontend/src/``), so plugin files can still import
+``@/lib/logger``, ``@/components/ui/...`` and ``@/plugins/types``
+from the frontend tree regardless of where the plugin lives on
+disk. In Docker the ``./plugins:/app/plugins`` volume mount makes
+the host's plugin dir visible at the path the glob expects.
 
 **Environment override:** the plugins path defaults to the
 ``plugins/`` folder at the repo root (two parents up from this

@@ -12,23 +12,21 @@
  * - `pluginTaskbarEntries` list: rendered by TaskBar alongside the
  *   core entries (chat/agent/settings).
  *
- * The glob targets the `user` subdirectory of this directory (one
- * level deep into `user`, then any plugin id) — i.e. the
- * normalisation target where the entrypoint / start script copies
- * each `plugins/<id>/frontend/`. The container's
- * `backend/entrypoint.sh` (and `startProd.sh` locally) runs
- * `backend/sync_plugins.sh` to copy each `plugins/<id>/frontend/`
- * from the (mounted or repo) plugin dir into
- * `frontend/src/plugins/user/<id>/` before the Vite build, so the
- * glob finds them. The `user` namespace keeps user plugin
- * artefacts separate from the loader files (`registry.ts`,
- * `types.ts`) in this same directory.
+ * The glob walks up out of this directory to the repo root and
+ * picks up each `plugins/<id>/frontend/index.ts` directly. No copy
+ * step is needed: the `@` alias in `vite.config.ts` resolves to
+ * an absolute path, so plugin files (which live outside the Vite
+ * project) can still import `@/lib/logger`, `@/components/ui/...`
+ * and `@/plugins/types` from the frontend tree. In Docker the
+ * `./plugins:/app/plugins` volume mount makes the host's plugin
+ * dir visible at the same path the glob expects, so the same
+ * glob works in dev, `startProd.sh`, and the container.
  *
- * **Coupling note:** the user-dir name (`user`) and the Vite
- * glob pattern here MUST match the destination directory in
- * `backend/sync_plugins.sh` (`$FRONTEND_USER_DIR`). If you rename
- * one, rename the other — they are a single shared key. The
- * `App.tsx` startup validator also reads the manifest from
+ * **Coupling note:** the glob pattern here MUST match the plugin
+ * layout under `plugins/<id>/frontend/`. If you add a deeper
+ * subdir or rename `frontend/`, update this glob and the path
+ * references in `start.sh` / `startProd.sh` / the Dockerfile.
+ * The `App.tsx` startup validator also reads the manifest from
  * `/config` and compares it against `pluginComponents` to catch
  * a panelComponentId mismatch between the two halves.
  */
@@ -39,17 +37,17 @@ import type {
     ToolPanelSpec,
 } from "./types";
 
-// Eagerly import every plugin's index.ts. The glob pattern must
-// match the destination side in `backend/sync_plugins.sh` —
-// that's the single shared key between sync and the Vite build.
-// Vite statically analyses the glob at build time and rejects
-// template literals with variables, so the path has to be a
-// plain string literal here. If you rename the user dir, update
-// this glob, the sync script's $FRONTEND_USER_DIR default, and
-// the JSDoc cross-reference in sync_plugins.sh. Three places,
-// one key.
+// Eagerly import every plugin's index.ts. The glob walks up three
+// levels (out of `frontend/src/plugins/`, out of `frontend/src/`,
+// out of `frontend/`) to reach the repo root, then matches each
+// `plugins/<id>/frontend/index.ts`. Vite statically analyses the
+// glob at build time and rejects template literals with variables,
+// so the path has to be a plain string literal here. If you
+// reorganise the plugins dir, update this glob and the plugin
+// layout references in `start.sh` / `startProd.sh` / the
+// Dockerfile.
 const modules = import.meta.glob<{ default: FrontendPlugin }>(
-    "./user/*/index.ts",
+    "../../../plugins/*/frontend/index.ts",
     { eager: true },
 );
 
