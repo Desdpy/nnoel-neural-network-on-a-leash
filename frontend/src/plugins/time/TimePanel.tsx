@@ -237,7 +237,7 @@ export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParamete
   // Fetch the full list of resolvable locations once, for the dropdown.
   useEffect(() => {
     let cancelled = false;
-    fetch("/tools/timezones/locations")
+    fetch("/plugins/time/timezones/locations")
       .then((res) => res.json() as Promise<{ locations: string[] }>)
       .then((data) => {
         if (!cancelled) setLocations(data.locations);

@@ -104,65 +104,164 @@ docker compose -f docker-compose.prod.yml up --build
 
 Open the web UI at `http://{host}:{port}` (see `config.toml`).
 
-## Adding tools
+## Plugins
 
-Nnoel can call external tools through the OpenAI-compatible function-calling interface. New tools are added as Python modules under `backend/tools/` and registered in the package's `__init__.py`.
+Nnoel ships with a plugin system so features like a weather lookup, notebook, or web search can be added as self-contained modules. A plugin is **two co-located folders paired by `<id>`** — one inside the backend project, one inside the frontend project. Adding a plugin never requires editing the existing `backend/`, `frontend/src/`, or `config.toml`.
 
-### 1. Create a tool module
+The reference implementation is the time plugin (`backend/plugins/time/` + `frontend/src/plugins/time/`) — the `get_local_time` tool, the autocomplete endpoint, the system-prompt rule + few-shot examples, and the Time panel UI all live in those two folders.
 
-Each tool module must export two things:
+### Adding a new plugin
 
-- `SCHEMA` — a dict in OpenAI function-calling format describing the tool's name, description, and parameters.
-- `run(**kwargs)` — a callable that executes the tool and returns a string result.
+To add a feature called `weather`, create two folders (the `<id>` must match across both):
 
-Use `backend/tools/time.py` as a template:
+```
+backend/plugins/weather/     # backend half
+  __init__.py
+  plugin.py                 # class WeatherPlugin(Plugin): ...
+  tool.py                   # SCHEMA + run()
+  # any other backend modules the tool needs
 
-```python
-from datetime import datetime
-from typing import Any
-
-SCHEMA: dict[str, Any] = {
-    "name": "get_local_time",
-    "description": "Get the current local time. Optionally specify a IANA timezone.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "timezone": {
-                "type": "string",
-                "description": "IANA timezone name (e.g. 'America/New_York').",
-                "default": "local",
-            },
-        },
-        "additionalProperties": False,
-    },
-}
-
-
-def run(timezone: str = "local") -> str:
-    if timezone == "local":
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ...
+frontend/src/plugins/weather/  # frontend half (optional — only if you want a GUI)
+  index.ts                  # default-export FrontendPlugin
+  WeatherPanel.tsx
 ```
 
-### 2. Register the tool
+#### Backend side
 
-Import your new module and add it to both the `TOOLS` list and the `HANDLERS` dict in `backend/tools/__init__.py`:
+Implements the `Plugin` Protocol defined in `backend/plugins/protocol.py`:
 
 ```python
-from . import time, my_new_tool
+# backend/plugins/weather/plugin.py
+from fastapi import APIRouter
+from .tool import SCHEMA, run
 
-TOOLS: list[dict[str, Any]] = [
-    {"type": "function", "function": time.SCHEMA},
-    {"type": "function", "function": my_new_tool.SCHEMA},
-]
+router = APIRouter()
+# (optional) @router.get("/forecast") ...
 
-HANDLERS: dict[str, Any] = {
-    time.SCHEMA["name"]: time.run,
-    my_new_tool.SCHEMA["name"]: my_new_tool.run,
-}
+class WeatherPlugin:
+    id = "weather"
+    tools = [{"schema": SCHEMA, "run": run}]
+    router = router
+    system_prompt = "3. For any weather question, call the get_weather tool."
+    frontend = {
+        "panel_component": "weatherPanel",
+        "panel_spec": {"id": "weather", "component": "weatherPanel",
+                       "title": "Weather", "floating": {"width": 400, "height": 360}},
+        "taskbar": {"id": "weather", "label": "Weather", "icon": "cloud",
+                    "action": "launchWeather", "toolName": "get_weather"},
+    }
+
+plugin = WeatherPlugin()
 ```
 
-Restart the backend and the LLM will be able to call your tool automatically.
+The backend registry (`backend/plugins/registry.py`) walks `backend/plugins/*/` at server startup, imports each `<id>/plugin.py` as `plugins.<id>.plugin`, and aggregates them into `TOOLS`, `HANDLERS`, `execute()`, `routers`, `system_prompt_fragments`, and `frontend_manifests`. A broken plugin is logged and skipped — the server still boots.
+
+#### Frontend side (optional)
+
+Exports a `FrontendPlugin` (type in `frontend/src/plugins/types.ts`):
+
+```ts
+// frontend/src/plugins/weather/index.ts
+import type { FrontendPlugin } from "../types";
+import { WeatherPanel } from "./WeatherPanel";
+
+export default {
+    id: "weather",
+    toolName: "get_weather",
+    panelComponentId: "weatherPanel",
+    component: WeatherPanel,
+    toolToPanel: { id: "weather", component: "weatherPanel", title: "Weather",
+                   floating: { width: 400, height: 360 },
+                   params: (args, result, extra) => ({ city: args.city, text: result }),
+                   instanceTitle: (args) => `Weather in ${args.city}` },
+    taskbar: { id: "weather", label: "Weather", icon: "cloud",
+               action: "launchWeather", toolName: "get_weather" },
+} satisfies FrontendPlugin;
+```
+
+The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("./*/index.ts", { eager: true })` to pick up every plugin's `index.ts` at build time and produces `pluginComponents` (merged into Dockview's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by `TaskBar`).
+
+Supported taskbar icons (by name): `clock`, `cloud`, `search`, `notebook`, `note`, `globe`. Add more by extending the `iconRegistry` in `frontend/src/components/TaskBar.tsx`.
+
+#### Variants
+
+- **Backend-only plugin** (no GUI): drop just `backend/plugins/<id>/` and omit the frontend folder. The LLM gets the tool and system-prompt guidance; no panel, no taskbar shortcut.
+- **Frontend-only plugin** (rare): drop just `frontend/src/plugins/<id>/` and omit the backend folder. The UI shows a panel/shortcut for a tool that... shouldn't exist without a backend, so this is uncommon.
+
+#### Activate
+
+Rebuild + restart. The backend registry picks up `backend/plugins/<id>/plugin.py` automatically; the frontend Vite glob picks up `frontend/src/plugins/<id>/index.ts` at the next build. The LLM can now call the new tool, the system prompt includes its guidance, the taskbar shows the new shortcut (if any), and the LLM-driven tool result opens the new panel.
+
+### Discovery mechanism (summary)
+
+- **Backend**: `backend/plugins/registry.py` walks `backend/plugins/*/plugin.py` at server startup, imports each as `plugins.<id>.plugin`, and aggregates.
+- **Frontend**: `frontend/src/plugins/registry.ts` uses Vite's `import.meta.glob` to eagerly import every `frontend/src/plugins/*/index.ts` at build time.
+
+### URL namespace
+
+Custom plugin endpoints are mounted at `/plugins/<id>/...`. The time plugin's autocomplete endpoint, for example, is `GET /plugins/time/timezones/locations` (it was `GET /tools/timezones/locations` before the refactor). The generic `POST /tools/{name}` direct-invocation endpoint is unchanged.
+
+### Docker
+
+The Dockerfile copies the two project trees recursively, so plugins are baked into the image without any special handling:
+
+- **Frontend stage** (`Dockerfile:9`): `COPY frontend/ .` picks up `frontend/src/plugins/<id>/` and Vite's `import.meta.glob` bundles every plugin's React component into the static dist.
+- **Runtime stage** (`Dockerfile:25`): `COPY backend/ backend/` picks up `backend/plugins/<id>/` and the Python registry discovers them at server startup.
+
+There are two compose files and the add-a-plugin flow differs between them. Pick the one that matches how you deploy.
+
+#### `docker-compose.prod.yml` — builds the image locally from your checkout
+
+This is the simplest path for self-hosting: you own the build, every plugin you add is included on the next build.
+
+```bash
+# 1. Add the plugin (two folders, same <id>).
+mkdir -p backend/plugins/weather frontend/src/plugins/weather
+# ... create plugin.py / tool.py on the backend side ...
+# ... create index.ts / WeatherPanel.tsx on the frontend side ...
+
+# 2. Build + start. The Dockerfile recursively copies the plugin folders
+#    into the image; the registry discovers them at startup.
+docker compose -f docker-compose.prod.yml up --build
+```
+
+Subsequent plugin changes: edit the files, then `docker compose -f docker-compose.prod.yml up --build` again.
+
+#### `docker-compose.yml` — pulls the prebuilt image from `ghcr.io`
+
+This compose file uses `image: ghcr.io/desdpy/nnoel-neural-network-on-a-leash:latest` and does **not** build locally. Plugins you add to your working tree are **not** in the pulled image. To get a new plugin into a running `docker-compose.yml` deployment you must publish a new image first:
+
+```bash
+# 1. Add the plugin folders (same as above).
+# 2. Commit + push to main. The GitHub Actions workflow
+#    (.github/workflows/docker.yml) builds a fresh image and pushes
+#    it to ghcr.io/desdpy/nnoel-neural-network-on-a-leash:latest.
+git add backend/plugins/weather frontend/src/plugins/weather
+git commit -m "Add weather plugin"
+git push origin main
+
+# 3. Pull the new image and recreate the container.
+docker compose pull && docker compose up -d
+```
+
+If you don't want to wait for CI (or you're hacking on a plugin), build locally and override the image tag:
+
+```bash
+docker compose -f docker-compose.prod.yml build      # local build
+docker compose -f docker-compose.yml up --build     # uses the local build via the prod Dockerfile
+```
+
+#### Verifying a plugin is live in the container
+
+```bash
+# The registry should list the new tool.
+docker compose exec nnoel python -c "import plugins; print(plugins.TOOLS)"
+
+# The /config endpoint should mention the new plugin's panel.
+curl -s http://localhost:5000/config | python -m json.tool
+```
+
+If a plugin doesn't appear, check the backend log: `docker compose logs nnoel | grep -i plugin`. A broken plugin is logged and skipped (the container still boots) — look for `Plugin 'foo' failed to import; skipping`.
 
 ## References
 - Inspired by [OpenClaw](https://github.com/openclaw/openclaw)

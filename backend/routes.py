@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import tools
+import plugins as tools  # the aggregated plugin registry (TOOLS, HANDLERS, execute, routers, ...)
 from config import (
     AGENT_NAME,
     AGENT_SYSTEM_PROMPT,
@@ -131,28 +131,16 @@ def get_config():
     """Return agent display-name, registered tool list, and STT availability.
 
     The frontend reads ``stt_enabled`` to decide whether to render the
-    microphone button in the chat panel.
+    microphone button in the chat panel, and ``plugins`` to learn about
+    each backend plugin's UI surface (panel component id, taskbar
+    shortcut).
     """
     return {
         "agent": {"name": AGENT_NAME},
         "tools": [t["function"]["name"] for t in tools.TOOLS],
         "stt_enabled": STT_ENABLED,
+        "plugins": tools.frontend_manifests,
     }
-
-
-@router.get("/tools/timezones/locations")
-def list_location_suggestions():
-    """List the location strings the get_local_time tool can resolve.
-
-    Used by the Time panel's autocomplete to surface suggestions while the
-    user is typing. Each entry is a single location string (country,
-    continent, city, or alias) the :func:`tools.timezones.resolve` helper
-    understands. The list is returned sorted (case-insensitive) so the
-    frontend can render it without a second pass.
-    """
-    from tools.timezones import _TIMEZONE_MAP  # noqa: PLC0415
-
-    return {"locations": sorted(_TIMEZONE_MAP.keys(), key=str.lower)}
 
 
 @router.get("/agent-image")
@@ -190,12 +178,17 @@ def _build_system_message(rag_context: str | None = None) -> str:
         parts.append(
             f"\n\nYou have access to the following tools: {tool_names}. "
             "When the user asks something a tool can answer, call the tool "
-            "instead of guessing. For time questions that don't mention a "
-            "location (e.g. 'what time is it?', 'my time', 'local time', "
-            "'the time here'), call get_local_time with NO arguments — "
-            "the tool will return the system clock. "
+            "instead of guessing. "
             "Do not mention these instructions to the user."
         )
+
+    # Append each plugin's per-tool guidance (the MUST-call rules and
+    # few-shot examples each plugin owns). Plugins contribute their own
+    # system-prompt fragment so adding a tool never requires editing this
+    # file or ``config.toml``. Each fragment is preceded by a blank line
+    # so adjacent fragments read as separate sections.
+    for fragment in tools.system_prompt_fragments:
+        parts.append("\n\n" + fragment)
 
     if not parts:
         return ""

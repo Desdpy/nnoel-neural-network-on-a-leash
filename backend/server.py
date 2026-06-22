@@ -6,11 +6,18 @@ Nnoel — Local AI assistant with in-process LLM and TTS.
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from config import HOST, LLM_MODEL_PATH, PORT
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from log import get_logger
-from routes import router
+# Import the plugin registry FIRST so its aggregated surface
+# (``TOOLS``, ``HANDLERS``, ``execute``, ``routers``, ...) is ready
+# when the rest of the backend (and ``routes.py``'s ``import plugins
+# as tools``) needs it. Plugins live as subpackages of ``backend/plugins/``
+# and are discovered at import time.
+import plugins  # noqa: E402
+
+from config import HOST, LLM_MODEL_PATH, PORT  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from log import get_logger  # noqa: E402
+from routes import router  # noqa: E402
 
 log = get_logger("server")
 
@@ -65,6 +72,12 @@ async def lifespan(app: FastAPI):
 # ``lifespan`` replaces the deprecated ``on_event`` startup hooks.
 app = FastAPI(docs_url="/docs", redoc_url="/redoc", lifespan=lifespan)
 app.include_router(router)
+
+# Mount each plugin's custom router at ``/plugins/<id>`` so the time
+# plugin's ``/plugins/time/timezones/locations`` endpoint (and any
+# future plugin's endpoints) are reachable without editing ``routes.py``.
+for plugin_id, plugin_router in plugins.routers:
+    app.include_router(plugin_router, prefix=f"/plugins/{plugin_id}")
 
 # Mount the pre-built frontend (Vite build output in frontend/dist) as static files
 # html=True allows SPA-style fallback to index.html for unknown routes

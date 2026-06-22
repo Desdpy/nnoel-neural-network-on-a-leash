@@ -9,7 +9,6 @@ import type {
 } from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
 import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
-import { TimePanel } from "./components/TimePanel";
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 import { TaskBar } from "./components/TaskBar";
 import {
@@ -17,6 +16,11 @@ import {
   type DockviewPanelsValue,
   type ToolPanelSpec,
 } from "./DockviewPanels";
+import {
+  pluginComponents,
+  pluginTaskbarEntries,
+  pluginToolToPanel,
+} from "./plugins/registry";
 import { createLogger } from "./lib/logger";
 
 const log = createLogger("App");
@@ -168,11 +172,14 @@ const theme: DockviewTheme = {
 
 const SIDEBAR_WIDTH = 400;
 
-// Map panel component names to their React components for Dockview
+// Map panel component names to their React components for Dockview.
+// Core panels live here; plugin panels are merged in from the registry
+// (Vite glob picks up every ``frontend/src/plugins/*/index.ts`` at
+// build time).
 const components = {
   chatPanel: ChatPanel,
   agentAvatarPanel: AgentAvatarPanel,
-  timePanel: TimePanel,
+  ...pluginComponents,
 };
 
 function App() {
@@ -201,32 +208,12 @@ function App() {
     removePanel: (panel: object) => void;
   } | null>(null);
 
-  // Mapping from tool name to the panel that should open when the LLM
-  // calls it. Keep this in one place so adding a new tool only requires
-  // one new entry here + a corresponding panel component.
+  // Mapping from LLM tool name to the panel that should open when the
+  // LLM calls it. Plugin panels are merged in from the registry so
+  // adding a new tool with a GUI panel never requires editing this
+  // file — just drop a new ``frontend/src/plugins/<id>/index.ts``.
   const toolToPanel = useRef<Record<string, ToolPanelSpec>>({
-    get_local_time: {
-      id: "time",
-      component: "timePanel",
-      title: "Time",
-      floating: { width: 360, height: 360 },
-      params: (args, result, extra) => ({
-        location: typeof args.location === "string" ? args.location : "",
-        text: result,
-        tz: (extra.tz as string | null | undefined) ?? null,
-        // ``scan: true`` is the signal the panel uses to show its
-        // scan-line overlay. The chat populates ``result`` with the
-        // tool's output, so the overlay only fires for LLM-driven
-        // opens — not for the taskbar's empty-state open.
-        scan: typeof result === "string" && result.length > 0,
-      }),
-      // Per-instance title so multiple time panels can be told apart
-      // in the dockview tab strip.
-      instanceTitle: (args) => {
-        const loc = typeof args.location === "string" ? args.location.trim() : "";
-        return loc ? `Time in ${loc}` : "Time";
-      },
-    },
+    ...pluginToolToPanel,
   }).current;
 
   // Counter for unique panel ids when opening multiple instances of the
@@ -321,13 +308,15 @@ function App() {
     return id;
   };
 
-  // Open a fresh Time tool panel as a floating dock on top of the grid.
+  // Open a fresh panel for the given LLM tool name as a floating dock.
   // Each click (from the taskbar or any other source) spawns a new
-  // instance, so the user can have several side by side for different
-  // locations. The panel auto-fetches the current time on mount when
-  // it has no seeded result.
-  const openTimePanel = () => {
-    const spec = toolToPanel.get_local_time;
+  // instance, so the user can have several side by side. The panel
+  // auto-fetches on mount when it has no seeded result. This is the
+  // generic launcher used by every plugin's taskbar shortcut; a
+  // plugin's ``taskbar.toolName`` is what we look up here.
+  const openPluginPanel = (toolName: string) => {
+    const spec = toolToPanel[toolName];
+    if (!spec) return;
     openNewPanel(spec, spec.params({}, "", {}));
   };
 
@@ -649,7 +638,8 @@ function App() {
             <TaskBar
               collapsed={taskbarCollapsed}
               onToggle={() => setTaskbarCollapsed(c => !c)}
-              onLaunchTime={openTimePanel}
+              pluginEntries={pluginTaskbarEntries}
+              onLaunchPlugin={openPluginPanel}
             />
           </div>
           {/* Main content area with animated NN background + Dockview panels */}

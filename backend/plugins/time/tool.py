@@ -1,17 +1,17 @@
+import logging
 from datetime import datetime
 from typing import Any
 
 from zoneinfo import ZoneInfo
 
-from log import get_logger
 from .timezones import resolve as _resolve_location
 
-log = get_logger("tools.time")
+log = logging.getLogger(__name__)
 
 # OpenAI-compatible function schema — describes the tool to the LLM.
 # The model passes a single human-readable ``location`` string (country,
 # continent, city, or alias) and the backend resolves it to an IANA
-# timezone via :mod:`tools.timezones`. This keeps the schema tiny (no
+# timezone via :mod:`.timezones`. This keeps the schema tiny (no
 # 600-value enum) while still letting the model express any location
 # the user might ask about.
 SCHEMA: dict[str, Any] = {

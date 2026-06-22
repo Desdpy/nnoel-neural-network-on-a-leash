@@ -3,6 +3,9 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN npm ci
+# Copying the full frontend tree picks up ``frontend/src/plugins/<id>/``
+# (the frontend half of each plugin) so Vite's ``import.meta.glob`` can
+# bundle every plugin's React component into the static dist.
 COPY frontend/ .
 RUN npm run build
 
@@ -15,7 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source code
+# Copy source code. ``COPY backend/`` recursively includes every plugin
+# under ``backend/plugins/<id>/``; the Python registry discovers them at
+# server startup. The frontend dist (with plugin TSX already bundled)
+# comes from the builder stage.
 COPY backend/ backend/
 COPY --from=frontend-builder /build/frontend/dist frontend/dist/
 

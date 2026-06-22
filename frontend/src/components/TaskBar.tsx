@@ -1,19 +1,54 @@
 import { useEffect, useState } from "react";
-import { MessageSquare, Bot, Clock, Settings, ChevronRight, ChevronLeft } from "lucide-react";
+import {
+  MessageSquare,
+  Bot,
+  Clock,
+  Settings,
+  ChevronRight,
+  ChevronLeft,
+  Cloud,
+  Search,
+  NotebookPen,
+  StickyNote,
+  Globe,
+  type LucideIcon,
+} from "lucide-react";
+import type { TaskbarEntry } from "../plugins/types";
 
 interface TaskBarProps {
   collapsed?: boolean;
   onToggle?: () => void;
-  onLaunchTime?: () => void;
+  /** Shortcut entries contributed by frontend plugins at build time. */
+  pluginEntries?: TaskbarEntry[];
+  /** Open a plugin's panel by its LLM tool name. */
+  onLaunchPlugin?: (toolName: string) => void;
 }
 
-// List of app shortcuts shown in the expanded taskbar
-const tasks = [
-  { id: "time", label: "Time", icon: Clock, action: "launchTime" },
-  { id: "chat", label: "Chat", icon: MessageSquare, action: "noop" },
-  { id: "agent", label: "Agent", icon: Bot, action: "noop" },
-  { id: "settings", label: "Settings", icon: Settings, action: "noop" },
-] as const;
+// Core taskbar shortcuts that are always present (chat, agent avatar,
+// settings). Plugin shortcuts are appended below and rendered through
+// the same button machinery.
+const coreTasks: ReadonlyArray<{
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  onClick?: () => void;
+}> = [
+  { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "agent", label: "Agent", icon: Bot },
+  { id: "settings", label: "Settings", icon: Settings },
+];
+
+// Map a string icon name from a plugin's ``TaskbarEntry`` to a lucide
+// component. Keep this list small and curated; plugin authors pick from
+// the supported set when they author their manifest.
+const iconRegistry: Record<string, LucideIcon> = {
+  clock: Clock,
+  cloud: Cloud,
+  search: Search,
+  notebook: NotebookPen,
+  note: StickyNote,
+  globe: Globe,
+};
 
 // Live clock hook — updates HH:MM:SS every second
 function useClock() {
@@ -44,12 +79,21 @@ function useClock() {
 }
 
 // A collapsible left sidebar showing app shortcuts and a live clock
-export function TaskBar({ collapsed, onToggle, onLaunchTime }: TaskBarProps) {
+export function TaskBar({
+  collapsed,
+  onToggle,
+  pluginEntries,
+  onLaunchPlugin,
+}: TaskBarProps) {
   const { h, m, s } = useClock();
 
-  function runTaskAction(action: string) {
-    if (action === "launchTime") onLaunchTime?.();
-  }
+  const pluginTasks = (pluginEntries ?? []).map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    icon: iconRegistry[entry.icon] ?? Clock,
+    onClick: () => onLaunchPlugin?.(entry.toolName),
+  }));
+  const allTasks = [...coreTasks, ...pluginTasks];
 
   // Collapsed mode: just a thin vertical strip with a clock and expand arrow
   if (collapsed) {
@@ -90,11 +134,11 @@ export function TaskBar({ collapsed, onToggle, onLaunchTime }: TaskBarProps) {
       </div>
 
       <div className="flex flex-col gap-1 px-2">
-        {tasks.map(({ id, label, icon: Icon, action }) => (
+        {allTasks.map(({ id, label, icon: Icon, onClick }) => (
           <button
             key={id}
             type="button"
-            onClick={() => runTaskAction(action)}
+            onClick={onClick}
             className="flex items-center gap-3 px-2 py-2 rounded-lg text-muted-fg hover:bg-surface-raised hover:text-text-base transition-all active:scale-90 active:duration-75 cursor-pointer"
           >
             <Icon className="w-5 h-5 shrink-0" />

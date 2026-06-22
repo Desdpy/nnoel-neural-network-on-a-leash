@@ -1,26 +1,11 @@
 import { createContext, useContext } from "react";
 
-// Spec for a panel that can be opened as a side effect of a tool call.
-// ``params`` converts the tool's (args, result, extra) into the panel's
-// initial parameters, so the panel can render with the right data.
-export interface ToolPanelSpec {
-  id: string;
-  component: string;
-  title: string;
-  params: (
-    args: Record<string, unknown>,
-    result: string,
-    extra: Record<string, unknown>,
-  ) => Record<string, unknown>;
-  floating?: { width?: number; height?: number };
-  // Optional: produce a more specific title for an individual panel
-  // instance (e.g. "Time in Tokyo"). Falls back to ``title`` if absent.
-  instanceTitle?: (
-    args: Record<string, unknown>,
-    result: string,
-    extra: Record<string, unknown>,
-  ) => string;
-}
+// ``ToolPanelSpec`` is owned by the frontend plugin system so all
+// plugins (and the registry that aggregates them) can use the same
+// type. Re-exported here for backwards compatibility with existing
+// imports (``import { ToolPanelSpec } from "./DockviewPanels"``).
+export type { ToolPanelSpec } from "./plugins/types";
+import type { ToolPanelSpec } from "./plugins/types";
 
 interface DockviewPanelsValue {
   // Open the panel described by ``spec``, seeding it with ``params``.
