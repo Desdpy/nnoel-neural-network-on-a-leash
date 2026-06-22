@@ -1,0 +1,131 @@
+/*
+ * Reusable @keyframes and animation classes.
+ *
+ * Each animation is named for the component that uses it so the
+ * source of truth is obvious. Animations are short and non-distracting
+ * — the goal is "feels alive," not "feels busy."
+ */
+
+/* Typing dots — the three pulsing circles in the chat while the LLM
+   is generating a response. Each dot uses the same keyframe with a
+   staggered animation-delay so they pulse in sequence. */
+@keyframes typing-dot {
+    0%, 60%, 100% {
+        opacity: 0.3;
+        transform: translateY(0);
+    }
+    30% {
+        opacity: 1;
+        transform: translateY(-0.25rem);
+    }
+}
+
+.typing-dots {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.75rem 1rem;
+    align-self: flex-start;
+    background: var(--bg-elevated);
+    border-radius: 1.25rem;
+    border-bottom-left-radius: 0.25rem;
+}
+.typing-dots__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    background: var(--fg-muted);
+    border-radius: 50%;
+    animation: typing-dot 1.4s infinite ease-in-out;
+}
+.typing-dots__dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+.typing-dots__dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+/* Mic ring — the audio-level ring around the mic button. The ring's
+   scale and color are driven by inline styles in ChatPanel (they
+   follow the live microphone volume from the STT hook), so this
+   keyframe just provides the smooth transition between volume
+   updates. */
+.mic-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    transition:
+        transform 75ms linear,
+        background-color 75ms linear;
+    pointer-events: none;
+}
+.mic-ring--idle {
+    background: color-mix(in oklch, var(--accent) 20%, transparent);
+    transform: scale(1);
+}
+.mic-ring--speech {
+    background: color-mix(in oklch, #4ade80 25%, transparent);
+    transform: scale(1.2);
+}
+
+/* Scan-line keyframe (and the .scan-overlay / .scan-overlay__line
+   classes) live in the time plugin's own stylesheet at
+   ``plugins/time/frontend/time-panel.css``. The plugin imports that
+   file from its ``index.ts`` so Vite bundles it together with the
+   rest of the plugin. */
+
+
+.scan-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    overflow: hidden;
+}
+.scan-overlay__line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2rem;
+    background: linear-gradient(
+        to bottom,
+        transparent,
+        rgba(34, 211, 238, 0.35),
+        transparent
+    );
+    animation: scan-bounce 1.5s ease-in-out infinite alternate;
+}
+
+/* Slide-in for the right-side edge group (the dock bar). The
+   container gets a class that transitions its width; the sass-style
+   effect is in dockview.css. This keyframe is reserved for any
+   future pulse/glow effect on the edge group. */
+
+/* Pulse for the mic button while recording. */
+@keyframes mic-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
+
+.mic-pulse {
+    animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+/* Fade-in for new messages in the chat. Subtle — a slight upward
+   motion + opacity, 200ms. */
+@keyframes message-appear {
+    from {
+        opacity: 0;
+        transform: translateY(0.25rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message {
+    animation: message-appear var(--t-med) ease-out;
+}

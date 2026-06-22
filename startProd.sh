@@ -2,6 +2,16 @@
 # Start Nnoel directly (no Docker) — builds the frontend, activates venv, downloads models if missing
 set -e
 
+echo "==> Synchronising user plugins (copying frontend halves into the Vite tree)..."
+# Plugins live co-located at ``plugins/<id>/{backend,frontend}/``. The
+# backend imports the backend halves directly via a synthetic package,
+# but the frontend halves must be copied into the Vite project so
+# module resolution works. ``sync_plugins.sh`` also prunes stale
+# destination folders for plugins that were removed.
+PLUGINS_DIR="$PWD/plugins" \
+    FRONTEND_USER_DIR="$PWD/frontend/src/plugins/user" \
+    bash backend/sync_plugins.sh
+
 echo "==> Building frontend..."
 cd frontend && npm run build && cd ..
 

@@ -1,95 +1,30 @@
-/* Tailwind CSS v4 imports + custom theme variables + dockview overrides */
+/*
+ * Main stylesheet entry. Imports the design system, then component
+ * styles, in a deliberate order so later rules can override earlier
+ * ones when needed:
+ *   1. tokens    — CSS custom properties (the design system)
+ *   2. base      — reset + typography (applies to every element)
+ *   3. utilities — small flex/gap helpers (reusable across components)
+ *   4. animations — keyframes + named animation classes
+ *   5. components — per-component styles
+ *   6. ui         — low-level primitives (button, textarea)
+ *   7. dockview   — library-specific overrides
+ *
+ * The @fontsource-variable/geist import is the typeface used as the
+ * default sans family (see --font-sans in tokens.css).
+ */
 
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+
+@import "./styles/tokens.css";
+@import "./styles/base.css";
+@import "./styles/utilities.css";
+@import "./styles/animations.css";
+@import "./styles/components.css";
+@import "./styles/ui.css";
 @import "./dockview.css";
-
-/* Dark mode variant — activates when parent has class "dark" */
-@custom-variant dark (&:is(.dark *));
-
-/* Custom semantic color tokens mapped to CSS custom properties */
-@theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: "Geist Variable", sans-serif;
-
-    --color-surface-base: var(--background);
-    --color-surface-raised: var(--card);
-    --color-surface-deep: var(--secondary);
-    --color-text-base: var(--foreground);
-    --color-accent: var(--primary);
-    --color-border: var(--border);
-    --color-muted-fg: var(--muted-foreground);
-    --color-success: #4ade80;
-    --color-warning: #fb923c;
-}
-
-/* Light theme (default) */
-:root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --radius: 0.625rem;
-}
-
-/* Dark theme (GitHub-dark-inspired color palette) */
-.dark {
-    --background: #161b22;
-    --foreground: #e6edf3;
-    --card: #21262d;
-    --card-foreground: #e6edf3;
-    --popover: #21262d;
-    --popover-foreground: #e6edf3;
-    --primary: #58a6ff;
-    --primary-foreground: #0d1117;
-    --secondary: #30363d;
-    --secondary-foreground: #e6edf3;
-    --muted: #161b22;
-    --muted-foreground: #8b949e;
-    --accent: #58a6ff;
-    --accent-foreground: #0d1117;
-    --destructive: #ef4444;
-    --border: #30363d;
-    --input: #21262d;
-    --ring: #58a6ff;
-}
 
 /* Avatar animations originate from the bottom edge */
 .motion-base {
   transform-origin: bottom;
 }
-
-/* Global base reset */
-@layer base {
-    * {
-        border-color: var(--border);
-        outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
-    }
-    html, body, #root {
-        height: 100%;
-    }
-    body {
-        background-color: var(--background);
-        color: var(--foreground);
-    }
-    html {
-        font-family: var(--font-sans);
-    }
-}
-

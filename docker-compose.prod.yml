@@ -8,8 +8,9 @@ services:
       # Flush Python stdout/stderr immediately (no buffering)
       PYTHONUNBUFFERED: "1"
     volumes:
-      - models_data:/app/models   # Persist downloaded models
-      - ./data:/app/data          # Persist chat history (SQLite)
+      - models_data:/app/models        # Persist downloaded models
+      - ./data:/app/data               # Persist chat history (SQLite)
+      - ./plugins:/app/plugins         # Co-located user plugins (backend + frontend halves)
     restart: unless-stopped
 
 volumes:

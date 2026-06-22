@@ -19,11 +19,11 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
   } = useAgentAvatar();
 
   return (
-    <div className="flex items-center justify-center h-full select-none p-4 overflow-hidden">
+    <div className="avatar-panel">
       {/* Outer div handles the "getting close" zoom/perspective transform */}
       <div
         ref={gettingCloseRef}
-        className="w-full h-full flex items-center justify-center"
+        className="avatar-panel__zoom-wrap"
         style={{
           transform: gettingCloseTransform,
           transition: `transform ${gettingCloseDuration}s ${gettingCloseTiming}`,
@@ -35,7 +35,7 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
           src="/agent-image"
           alt="Nnoel"
           draggable={false}
-          className="max-w-full max-h-full object-contain rounded-lg motion-base cursor-pointer"
+          className="avatar-panel__img motion-base"
           style={{
             transform,
             transition: `transform ${duration}s ${timing}`,

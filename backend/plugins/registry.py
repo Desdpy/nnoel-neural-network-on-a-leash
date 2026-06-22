@@ -1,31 +1,58 @@
 """Plugin discovery and aggregation.
 
-At import time this module walks the ``backend/plugins/`` directory
-(``Path(__file__).parent``), imports each plugin's ``plugin.py`` (which
-must expose a module-level ``plugin`` attribute satisfying the
-:class:`Plugin` Protocol), and aggregates them into module-level
-structures consumed by the rest of the backend:
+A plugin is a self-contained subfolder of the top-level ``plugins/``
+directory: ``plugins/<id>/backend/`` (the Python tool, custom HTTP
+endpoints, system-prompt guidance, and UI manifest) plus, optionally,
+``plugins/<id>/frontend/`` (the React panel component and a
+default-exporting ``index.ts`` manifest). The two halves are paired by
+sharing the same ``<id>``.
 
-- ``TOOLS``             — OpenAI function-calling list passed to the LLM
-- ``HANDLERS``          — name → callable map for direct tool invocation
-- ``execute(name, args)`` — generic dispatcher used by ``routes.py``
-- ``routers``           — ``(plugin_id, APIRouter)`` pairs, mounted at
-                          ``/plugins/<id>`` by ``server.py``
-- ``system_prompt_fragments`` — per-plugin prompt guidance concatenated
-                          into the agent's system message
-- ``frontend_manifests`` — per-plugin UI metadata, sent to the UI via
-                          ``GET /config`` so it can pick up taskbar entries
-                          and panel component ids at runtime
+In the Docker flow the ``plugins/`` directory is a single volume mount
+so users can supply plugins at runtime without rebuilding the image. In
+local dev the same directory holds the repo's reference plugins (e.g.
+``plugins/time/``).
 
-Discovery is intentionally read-only and non-fatal: a broken plugin is
-logged and skipped, not raised. The registry is built once at import and
-is the only thing the rest of the backend imports.
+Importing this package triggers the discovery pass and aggregates every
+plugin into the module-level surface (``TOOLS``, ``HANDLERS``,
+``execute``, ``routers``, ``system_prompt_fragments``,
+``frontend_manifests``) that the rest of the backend consumes without
+needing to know about any individual plugin.
+
+**Why a synthetic package for imports:**
+Each plugin's backend is at ``plugins/<id>/backend/`` (a regular Python
+package with its own ``__init__.py``). To import those packages via
+``importlib`` without coupling the registry to the plugin authors'
+filesystem layout — and to make the import robust to a Docker volume
+mount that may or may not carry a baked ``__init__.py`` at the parent
+level — the registry creates a synthetic parent module
+(``nnoel_plugins``) in ``sys.modules`` whose ``__path__`` points at the
+``plugins/`` directory. This makes each plugin importable as
+``nnoel_plugins.<id>.backend`` and its entry point as
+``nnoel_plugins.<id>.backend.plugin``, so intra-plugin relative
+imports like ``from .tool import SCHEMA`` work.
+
+**Frontend half:**
+The frontend code (``plugins/<id>/frontend/``) is NOT scanned by this
+registry — it lives outside the Vite project, so Vite/TypeScript can't
+resolve ``node_modules`` from there. Instead, the container's
+``backend/entrypoint.sh`` runs ``backend/sync_plugins.sh`` which copies
+each ``plugins/<id>/frontend/`` into ``frontend/src/plugins/user/<id>/``
+(inside the Vite project) before the frontend bundle is rebuilt. The
+Vite glob then picks the panels up normally. Local dev uses the same
+``sync_plugins.sh`` (called from ``start.sh`` or run manually).
+
+**Environment override:** the plugins path defaults to the
+``plugins/`` folder at the repo root (two parents up from this
+``backend/plugins/`` package) but can be overridden with the
+``NNOEL_PLUGINS_DIR`` env var for non-Docker setups pointing at, e.g.,
+``~/nnoel-plugins``.
 """
-
-from __future__ import annotations
 
 import importlib
 import logging
+import os
+import sys
+import types
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -33,24 +60,52 @@ from .protocol import Plugin
 
 log = logging.getLogger(__name__)
 
-# The plugins directory is the directory that contains this file
-# (``backend/plugins/``). Each direct subdirectory is treated as a
-# plugin package and its ``plugin`` attribute is loaded as a :class:`Plugin`.
-_PLUGINS_DIR = Path(__file__).resolve().parent
+# The single plugins directory (volume-mount target in the Docker flow).
+# Resolved in this order:
+#   1. ``NNOEL_PLUGINS_DIR`` environment variable.
+#   2. ``plugins/`` at the repo root (two parents up from this loader).
+_PLUGINS_DIR = Path(
+    os.environ.get("NNOEL_PLUGINS_DIR")
+    or (Path(__file__).resolve().parents[2] / "plugins")
+)
+
+# Synthetic parent module name used to import plugins. Chosen to be
+# unique enough not to collide with real top-level packages. The
+# ``plugins/`` directory itself does NOT need to be a real Python
+# package (no ``__init__.py`` at the ``plugins/`` level) thanks to this
+# trick.
+_PLUGINS_PKG = "nnoel_plugins"
+
+
+def _setup_plugins_path() -> bool:
+    """Install the synthetic parent module so plugins import cleanly.
+
+    Returns ``True`` if the directory exists and the synthetic
+    package was (or already was) installed, ``False`` if the
+    directory is missing (in which case no plugins can load and
+    the caller should treat that as "zero plugins").
+    """
+    if not _PLUGINS_DIR.is_dir():
+        return False
+    if _PLUGINS_PKG not in sys.modules:
+        pkg = types.ModuleType(_PLUGINS_PKG)
+        # ``__path__`` is what makes ``import x.y`` look inside this
+        # directory for subpackages. Pinning it to exactly the
+        # plugins dir avoids ever picking up unrelated packages that
+        # might share the name on sys.path.
+        pkg.__path__ = [str(_PLUGINS_DIR)]
+        sys.modules[_PLUGINS_PKG] = pkg
+    return True
 
 
 def _load_plugin(plugin_id: str, plugin_dir: Path) -> Optional[Plugin]:
-    """Import a single plugin's ``plugin.py`` and return the ``Plugin`` instance.
-
-    Returns ``None`` and logs a warning if the plugin is missing its
-    ``plugin.py``, if the module fails to import, or if the loaded
-    object doesn't satisfy the :class:`Plugin` Protocol.
-    """
-    module_path = plugin_dir / "plugin.py"
+    """Import a single plugin's ``backend/plugin.py`` and return the ``Plugin`` instance."""
+    backend_dir = plugin_dir / "backend"
+    module_path = backend_dir / "plugin.py"
     if not module_path.is_file():
-        log.debug("Plugin %r has no plugin.py; skipping", plugin_id)
+        log.debug("Plugin %r has no backend/plugin.py; skipping", plugin_id)
         return None
-    fqmn = f"plugins.{plugin_id}.plugin"
+    fqmn = f"{_PLUGINS_PKG}.{plugin_id}.backend.plugin"
     try:
         module = importlib.import_module(fqmn)
     except Exception:  # noqa: BLE001
@@ -58,7 +113,7 @@ def _load_plugin(plugin_id: str, plugin_dir: Path) -> Optional[Plugin]:
         return None
     candidate = getattr(module, "plugin", None)
     if candidate is None:
-        log.warning("Plugin %r: plugin.py has no 'plugin' attribute; skipping", plugin_id)
+        log.warning("Plugin %r: backend/plugin.py has no 'plugin' attribute; skipping", plugin_id)
         return None
     if not isinstance(candidate, Plugin):
         log.warning(
@@ -70,27 +125,53 @@ def _load_plugin(plugin_id: str, plugin_dir: Path) -> Optional[Plugin]:
 
 
 def _discover() -> list[Plugin]:
-    """Walk ``backend/plugins/*/`` and return loaded plugin instances.
+    """Walk ``plugins/<id>/`` and return loaded plugin instances.
 
-    Sorted by ``id`` so aggregation order is stable across runs (and so
-    the ``/config`` payload is deterministic). Non-directory entries,
-    hidden directories, and packages without a valid ``plugin.py`` are
-    silently skipped — discovery is meant to be best-effort.
+    A plugin only needs ``plugins/<id>/backend/plugin.py`` to be
+    picked up; the ``frontend/`` half is optional (and the frontend
+    side handles its own copy/rebuild flow). Sorted by ``id`` so
+    aggregation order (and the ``/config`` payload) is stable across
+    runs. Non-directory entries, hidden directories, and packages
+    without a valid ``backend/plugin.py`` are silently skipped —
+    discovery is meant to be best-effort.
+
+    Id collisions (two plugins declaring the same ``id``) are
+    detected here and a warning is logged. The second-encountered
+    plugin wins in the ``HANDLERS`` and ``TOOLS`` maps (because
+    dict assignment) but BOTH appear in the ``routers`` /
+    ``system_prompt_fragments`` / ``frontend_manifests`` lists —
+    which is the inconsistent state the warning is meant to flag.
     """
-    if not _PLUGINS_DIR.is_dir():
+    if not _setup_plugins_path():
         log.info("No plugins directory at %s; running with zero plugins", _PLUGINS_DIR)
         return []
-    plugins: list[Plugin] = []
+    # Key by the plugin's ``id`` attribute (NOT the folder name) —
+    # the folder is just a path on disk, the ``id`` is the plugin's
+    # actual identity. Two folders with different names can declare the
+    # same ``id`` and silently clash in the aggregated maps if we
+    # keyed by folder. Sorting the final list by ``id`` (not folder)
+    # also keeps ``/config`` output stable when folders are renamed.
+    by_id: dict[str, Plugin] = {}
+    by_folder: dict[str, str] = {}  # folder -> id, for the warning message
     for entry in sorted(_PLUGINS_DIR.iterdir(), key=lambda p: p.name):
         if not entry.is_dir() or entry.name.startswith(("_", ".")):
             continue
-        # Skip this very package's own non-plugin subdirectories
-        # (e.g. ``__pycache__`` is filtered by the name check above).
-        plugin_id = entry.name
-        loaded = _load_plugin(plugin_id, entry)
-        if loaded is not None:
-            plugins.append(loaded)
-    return plugins
+        loaded = _load_plugin(entry.name, entry)
+        if loaded is None:
+            continue
+        pid = loaded.id
+        if pid in by_id:
+            log.warning(
+                "Plugin id collision: %r is declared by both "
+                "``%s/`` and ``%s/`` — the second-encountered one wins. "
+                "This causes inconsistent state (some maps get one, "
+                "others get both). Rename one folder or change one "
+                "plugin's ``id`` attribute to a unique value.",
+                pid, by_folder[pid], entry.name,
+            )
+        by_id[pid] = loaded
+        by_folder[pid] = entry.name
+    return [by_id[pid] for pid in sorted(by_id)]
 
 
 # --- Aggregation --------------------------------------------------------

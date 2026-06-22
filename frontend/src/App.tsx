@@ -595,7 +595,45 @@ function App() {
     // Fetch the agent's display name from the backend and update the tab title
     fetch("/config")
       .then((res) => res.json())
-      .then((data) => api.getPanel("agent-avatar")?.setTitle(data.agent.name))
+      .then((data) => {
+        api.getPanel("agent-avatar")?.setTitle(data.agent.name);
+        // Cross-check the backend manifest's panel_component ids against
+        // the components the frontend actually bundled. A mismatch here
+        // means the plugin's two halves disagree (typo in
+        // panelComponentId, plugin ships with backend only, etc.) —
+        // the taskbar / chat would silently no-op the panel open. Warn
+        // so the developer catches it at startup instead of from a
+        // confused user report. See `plugins/registry.ts` and
+        // `backend/plugins/registry.py` for the two registries being
+        // compared.
+        const manifestIds = (data.plugins ?? [])
+          .map((p: { panel_component?: string }) => p.panel_component)
+          .filter((id: unknown): id is string => typeof id === "string" && id.length > 0);
+        const componentIds = Object.keys(pluginComponents);
+        const missingComponents = manifestIds.filter(
+          (id: string) => !componentIds.includes(id),
+        );
+        const orphanComponents = componentIds.filter(
+          (id: string) => !manifestIds.includes(id),
+        );
+        if (missingComponents.length > 0) {
+          log.warn(
+            "Plugin manifest references panel_component id(s) that the " +
+              "frontend didn't bundle (likely a panelComponentId typo, or " +
+              "the plugin's frontend/index.ts is missing):",
+            missingComponents,
+          );
+        }
+        if (orphanComponents.length > 0) {
+          log.warn(
+            "Frontend bundled panel component(s) that the backend " +
+              "manifest doesn't list (likely the plugin's backend/plugin.py " +
+              "frontend.manifest.panel_component doesn't match the " +
+              "frontend's panelComponentId):",
+            orphanComponents,
+          );
+        }
+      })
       .catch((err) => log.warn("Failed to fetch /config; agent tab title unchanged", err));
   };
 
@@ -628,12 +666,12 @@ function App() {
 
   return (
     <DockviewPanelsContext.Provider value={panelsContextValue}>
-      <div className="relative w-full h-full overflow-hidden">
-        <div className="relative w-full h-full flex" style={{ zIndex: 1 }}>
+      <div className="app">
+        <div className="app__shell">
           {/* Left-side auto-hiding taskbar */}
           <div
             ref={taskbarRef}
-            className={`${taskbarCollapsed ? 'w-9' : 'w-40'} shrink-0 transition-[width] duration-200`}
+            className={`app__taskbar-slot ${taskbarCollapsed ? 'app__taskbar-slot--collapsed' : 'app__taskbar-slot--expanded'}`}
           >
             <TaskBar
               collapsed={taskbarCollapsed}
@@ -643,7 +681,7 @@ function App() {
             />
           </div>
           {/* Main content area with animated NN background + Dockview panels */}
-          <div className="flex-1 min-w-0 relative rounded-l-2xl overflow-hidden">
+          <div className="app__main">
             <NeuralNetworkBackground />
             <DockviewReact
               theme={theme}

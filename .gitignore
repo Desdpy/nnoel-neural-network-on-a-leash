@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
 .venv/
+# Root node_modules symlink -> frontend/node_modules (so plugin TSX
+# outside the Vite project can resolve bare imports like "react"). The
+# trailing-slash ``node_modules/`` rule above matches real dirs but not
+# this root symlink (git treats the symlink as a file), so anchor it.
+/node_modules
 
 # Build output
 frontend/dist/
@@ -38,3 +43,22 @@ models/
 
 # Per-user chat data
 data/
+
+# Frontend plugin normalisation target. The entrypoint /
+# ``backend/sync_plugins.sh`` copies each ``plugins/<id>/frontend/``
+# here so Vite can resolve modules against the frontend project.
+# These are generated artefacts (not authored by hand) so we ignore
+# them. The ``.gitkeep`` is re-included via negation so the empty
+# dir stays tracked for the sync target.
+#
+# This is safe because Tailwind is gone from this project. Vite's
+# ``import.meta.glob`` and the global stylesheet (``components.css``
+# in ``src/styles/``) don't read ``.gitignore`` — they walk the
+# filesystem directly. So the plugin TSX is still bundled by Vite
+# and its CSS classes are still in the bundle, regardless of this
+# ignore rule. (The reason it USED to be untracked-only is that
+# Tailwind v4's scanner respected git's exclusion and would skip
+# these files, dropping their classes from the CSS. That constraint
+# no longer applies.)
+frontend/src/plugins/user/*
+!frontend/src/plugins/user/.gitkeep

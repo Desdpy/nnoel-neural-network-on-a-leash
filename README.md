@@ -102,36 +102,39 @@ or
 docker compose -f docker-compose.prod.yml up --build
 ```
 
+```bash
+clone, cd frontend && npm install, ./startProd.sh.
+```
+
 Open the web UI at `http://{host}:{port}` (see `config.toml`).
 
 ## Plugins
 
-Nnoel ships with a plugin system so features like a weather lookup, notebook, or web search can be added as self-contained modules. A plugin is **two co-located folders paired by `<id>`** — one inside the backend project, one inside the frontend project. Adding a plugin never requires editing the existing `backend/`, `frontend/src/`, or `config.toml`.
+Nnoel ships with a plugin system so features like a weather lookup, notebook, or web search can be added as self-contained modules. A plugin is a single co-located folder under `plugins/<id>/` at the repo root, containing a `backend/` subpackage (the Python tool, custom endpoints, system-prompt guidance) and optionally a `frontend/` subfolder (the React panel + a default-exporting `index.ts` manifest). Adding a plugin never requires editing `backend/`, `frontend/src/`, or `config.toml`, and — with the prebuilt image — never requires rebuilding the image either: just drop the folder into `./plugins/` and `docker compose restart`.
 
-The reference implementation is the time plugin (`backend/plugins/time/` + `frontend/src/plugins/time/`) — the `get_local_time` tool, the autocomplete endpoint, the system-prompt rule + few-shot examples, and the Time panel UI all live in those two folders.
+The reference implementation is the time plugin at `plugins/time/` — the `get_local_time` tool, the autocomplete endpoint, the system-prompt rule + few-shot examples, and the Time panel UI all live in that one folder.
 
 ### Adding a new plugin
 
-To add a feature called `weather`, create two folders (the `<id>` must match across both):
+To add a feature called `weather`, create one co-located folder (the `<id>` must match the backend and frontend halves):
 
 ```
-backend/plugins/weather/     # backend half
-  __init__.py
-  plugin.py                 # class WeatherPlugin(Plugin): ...
-  tool.py                   # SCHEMA + run()
-  # any other backend modules the tool needs
-
-frontend/src/plugins/weather/  # frontend half (optional — only if you want a GUI)
-  index.ts                  # default-export FrontendPlugin
-  WeatherPanel.tsx
+plugins/weather/
+  backend/                # Python half (required for the tool)
+    __init__.py
+    plugin.py             # class WeatherPlugin(Plugin): ...
+    tool.py               # SCHEMA + run()
+  frontend/               # frontend half (optional — only if you want a GUI)
+    index.ts              # default-export FrontendPlugin
+    WeatherPanel.tsx
 ```
 
-#### Backend side
+#### Backend half
 
 Implements the `Plugin` Protocol defined in `backend/plugins/protocol.py`:
 
 ```python
-# backend/plugins/weather/plugin.py
+# plugins/weather/backend/plugin.py
 from fastapi import APIRouter
 from .tool import SCHEMA, run
 
@@ -154,15 +157,17 @@ class WeatherPlugin:
 plugin = WeatherPlugin()
 ```
 
-The backend registry (`backend/plugins/registry.py`) walks `backend/plugins/*/` at server startup, imports each `<id>/plugin.py` as `plugins.<id>.plugin`, and aggregates them into `TOOLS`, `HANDLERS`, `execute()`, `routers`, `system_prompt_fragments`, and `frontend_manifests`. A broken plugin is logged and skipped — the server still boots.
+The backend registry (`backend/plugins/registry.py`) walks `plugins/<id>/backend/` at server startup, imports each as `nnoel_plugins.<id>.backend.plugin` (via a synthetic parent module), and aggregates them into `TOOLS`, `HANDLERS`, `execute()`, `routers`, `system_prompt_fragments`, and `frontend_manifests`. A broken plugin is logged and skipped — the server still boots.
 
-#### Frontend side (optional)
+The `backend/` subfolder of a plugin **must be a regular Python package** (have its own `__init__.py`) so the relative import `from .tool import …` works inside `plugin.py`.
+
+#### Frontend half (optional)
 
 Exports a `FrontendPlugin` (type in `frontend/src/plugins/types.ts`):
 
 ```ts
-// frontend/src/plugins/weather/index.ts
-import type { FrontendPlugin } from "../types";
+// plugins/weather/frontend/index.ts
+import type { FrontendPlugin } from "../../types";
 import { WeatherPanel } from "./WeatherPanel";
 
 export default {
@@ -179,89 +184,85 @@ export default {
 } satisfies FrontendPlugin;
 ```
 
-The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("./*/index.ts", { eager: true })` to pick up every plugin's `index.ts` at build time and produces `pluginComponents` (merged into Dockview's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by `TaskBar`).
+**Why `../../types`?** When the container's entrypoint runs `backend/sync_plugins.sh`, it copies your `plugins/<id>/frontend/` into `frontend/src/plugins/user/<id>/` (inside the Vite project, so module resolution works). The relative `../../types` resolves correctly from that destination location.
+
+The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("./*/index.ts", { eager: true })` over `frontend/src/plugins/user/` (the normalisation target) to pick up every plugin's `index.ts` at build time and produces `pluginComponents` (merged into Dockview's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by `TaskBar`).
 
 Supported taskbar icons (by name): `clock`, `cloud`, `search`, `notebook`, `note`, `globe`. Add more by extending the `iconRegistry` in `frontend/src/components/TaskBar.tsx`.
 
 #### Variants
 
-- **Backend-only plugin** (no GUI): drop just `backend/plugins/<id>/` and omit the frontend folder. The LLM gets the tool and system-prompt guidance; no panel, no taskbar shortcut.
-- **Frontend-only plugin** (rare): drop just `frontend/src/plugins/<id>/` and omit the backend folder. The UI shows a panel/shortcut for a tool that... shouldn't exist without a backend, so this is uncommon.
+- **Backend-only plugin** (no GUI): drop just `plugins/<id>/backend/` and omit the frontend half. The LLM gets the tool and system-prompt guidance; no panel, no taskbar shortcut.
+- **Frontend-only plugin** (rare): drop just `plugins/<id>/frontend/` and omit the backend half. The UI shows a panel/shortcut for a tool that shouldn't exist without a backend, so this is uncommon.
 
 #### Activate
 
-Rebuild + restart. The backend registry picks up `backend/plugins/<id>/plugin.py` automatically; the frontend Vite glob picks up `frontend/src/plugins/<id>/index.ts` at the next build. The LLM can now call the new tool, the system prompt includes its guidance, the taskbar shows the new shortcut (if any), and the LLM-driven tool result opens the new panel.
+**With the prebuilt image (`docker-compose.yml`)**: drop the folder, restart the container, refresh the browser. The entrypoint copies the frontend half into the Vite tree, rebuilds the bundle (~3 s when a frontend plugin is present, zero overhead otherwise), then the backend's Python registry picks up the backend half on import. **No `docker build` needed.**
+
+```bash
+mkdir -p plugins/weather/{backend,frontend}
+# ... create the files ...
+docker compose restart nnoel
+# browser refresh → "Weather" in the sidebar
+```
+
+**With the from-source image (`docker-compose.prod.yml`)**: same as above, but you can also bake the plugin into the image by re-running `docker compose -f docker-compose.prod.yml up --build`.
+
+**Local dev (no Docker)**: run the sync once, then the build, then the backend.
+
+```bash
+PLUGINS_DIR="$PWD/plugins" FRONTEND_USER_DIR="$PWD/frontend/src/plugins/user" \
+    bash backend/sync_plugins.sh
+cd frontend && npm run build
+cd .. && python3 backend/server.py
+```
 
 ### Discovery mechanism (summary)
 
-- **Backend**: `backend/plugins/registry.py` walks `backend/plugins/*/plugin.py` at server startup, imports each as `plugins.<id>.plugin`, and aggregates.
-- **Frontend**: `frontend/src/plugins/registry.ts` uses Vite's `import.meta.glob` to eagerly import every `frontend/src/plugins/*/index.ts` at build time.
+- **Backend**: `backend/plugins/registry.py` walks `plugins/<id>/backend/plugin.py` at server startup, imports each as `nnoel_plugins.<id>.backend.plugin` via a synthetic parent module, and aggregates.
+- **Frontend**: the container's `backend/entrypoint.sh` calls `backend/sync_plugins.sh` to copy `plugins/<id>/frontend/` into `frontend/src/plugins/user/<id>/` (inside the Vite project). Vite's `import.meta.glob` picks up the `index.ts` files at build time. Local dev uses the same `sync_plugins.sh` invoked manually.
 
 ### URL namespace
 
-Custom plugin endpoints are mounted at `/plugins/<id>/...`. The time plugin's autocomplete endpoint, for example, is `GET /plugins/time/timezones/locations` (it was `GET /tools/timezones/locations` before the refactor). The generic `POST /tools/{name}` direct-invocation endpoint is unchanged.
+Custom plugin endpoints are mounted at `/plugins/<id>/...`. The time plugin's autocomplete endpoint is `GET /plugins/time/timezones/locations` (it was `GET /tools/timezones/locations` before the plugin system was introduced). The generic `POST /tools/{name}` direct-invocation endpoint is unchanged.
 
-### Docker
+### Docker (the barebones runtime-rebuild image)
 
-The Dockerfile copies the two project trees recursively, so plugins are baked into the image without any special handling:
+The prebuilt image is **barebones** — zero plugins baked in. It ships the Python backend, Node.js 22, the frontend source, and the Vite `node_modules` so the entrypoint can rebuild the bundle at container start. The user's `plugins/` is mounted as a single volume; the entrypoint normalises it and optionally rebuilds.
 
-- **Frontend stage** (`Dockerfile:9`): `COPY frontend/ .` picks up `frontend/src/plugins/<id>/` and Vite's `import.meta.glob` bundles every plugin's React component into the static dist.
-- **Runtime stage** (`Dockerfile:25`): `COPY backend/ backend/` picks up `backend/plugins/<id>/` and the Python registry discovers them at server startup.
+**No `docker build`, no `npm run build` on the host.** Just drop plugin folders and restart.
 
-There are two compose files and the add-a-plugin flow differs between them. Pick the one that matches how you deploy.
-
-#### `docker-compose.prod.yml` — builds the image locally from your checkout
-
-This is the simplest path for self-hosting: you own the build, every plugin you add is included on the next build.
+#### Install + first run (no clone needed)
 
 ```bash
-# 1. Add the plugin (two folders, same <id>).
-mkdir -p backend/plugins/weather frontend/src/plugins/weather
-# ... create plugin.py / tool.py on the backend side ...
-# ... create index.ts / WeatherPanel.tsx on the frontend side ...
-
-# 2. Build + start. The Dockerfile recursively copies the plugin folders
-#    into the image; the registry discovers them at startup.
-docker compose -f docker-compose.prod.yml up --build
+mkdir nnoel && cd nnoel
+curl -O https://raw.githubusercontent.com/desdpy/nnoel-neural-network-on-a-leash/main/docker-compose.yml
+mkdir -p plugins      # empty = zero plugins; the image runs as a plain chatbot
+docker compose up -d
+# open http://localhost:5000
 ```
 
-Subsequent plugin changes: edit the files, then `docker compose -f docker-compose.prod.yml up --build` again.
+**First plugin (no clone, using the README template):** see "Activate" above — drop a `plugins/hello/{backend,frontend}/` pair, `docker compose restart nnoel`, refresh.
 
-#### `docker-compose.yml` — pulls the prebuilt image from `ghcr.io`
+**First plugin (with the repo's reference):** clone the repo and `cp -r plugins/time plugins/time_yours` (or just leave `plugins/time/` as-is), then `docker compose restart nnoel` — the time plugin will be mounted and live.
 
-This compose file uses `image: ghcr.io/desdpy/nnoel-neural-network-on-a-leash:latest` and does **not** build locally. Plugins you add to your working tree are **not** in the pulled image. To get a new plugin into a running `docker-compose.yml` deployment you must publish a new image first:
+#### Updating the image
 
 ```bash
-# 1. Add the plugin folders (same as above).
-# 2. Commit + push to main. The GitHub Actions workflow
-#    (.github/workflows/docker.yml) builds a fresh image and pushes
-#    it to ghcr.io/desdpy/nnoel-neural-network-on-a-leash:latest.
-git add backend/plugins/weather frontend/src/plugins/weather
-git commit -m "Add weather plugin"
-git push origin main
-
-# 3. Pull the new image and recreate the container.
 docker compose pull && docker compose up -d
 ```
 
-If you don't want to wait for CI (or you're hacking on a plugin), build locally and override the image tag:
+Your `plugins/` (host-mounted), `data/` (chat history), and `models` (named volume) all persist across image updates.
+
+#### Verifying a plugin is live
 
 ```bash
-docker compose -f docker-compose.prod.yml build      # local build
-docker compose -f docker-compose.yml up --build     # uses the local build via the prod Dockerfile
-```
-
-#### Verifying a plugin is live in the container
-
-```bash
-# The registry should list the new tool.
 docker compose exec nnoel python -c "import plugins; print(plugins.TOOLS)"
-
-# The /config endpoint should mention the new plugin's panel.
 curl -s http://localhost:5000/config | python -m json.tool
+docker compose logs nnoel | grep -i plugin   # look for "Loaded N plugin(s): ..."
 ```
 
-If a plugin doesn't appear, check the backend log: `docker compose logs nnoel | grep -i plugin`. A broken plugin is logged and skipped (the container still boots) — look for `Plugin 'foo' failed to import; skipping`.
+A broken plugin is logged and skipped — the container still boots. Look for `Plugin 'foo' failed to import; skipping` in the logs.
 
 ## References
 - Inspired by [OpenClaw](https://github.com/openclaw/openclaw)

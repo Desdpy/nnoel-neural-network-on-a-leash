@@ -1,0 +1,349 @@
+/*
+ * Component styles.
+ *
+ * Each section is the single source of truth for one component or
+ * component family. Sections are ordered by "where it appears in the
+ * DOM tree" (app shell → sidebar → panels → UI primitives) so you
+ * can read top-to-bottom and follow the visual hierarchy.
+ *
+ * Naming convention: a base class for the component (`.taskbar`,
+ * `.chat-panel`) plus BEM-style modifiers (`.taskbar--collapsed`,
+ * `.chat-message--user`) and elements (`.chat-message__bubble`).
+ * State classes (`.is-recording`) are prefixed with `is-`.
+ */
+
+/* =====================================================================
+   APP SHELL — the root layout, sidebar/taskbar, and dockview container.
+   ===================================================================== */
+
+.app {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.app__shell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    z-index: 1;
+}
+
+.app__taskbar-slot {
+    flex-shrink: 0;
+    transition: width var(--t-med) ease;
+    overflow: hidden;
+}
+.app__taskbar-slot--collapsed {
+    width: var(--taskbar-w-collapsed);
+}
+.app__taskbar-slot--expanded {
+    width: var(--taskbar-w-expanded);
+}
+
+.app__main {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    /* Only the LEFT corners are rounded: the right side is flush with
+       the window edge (where the dockview content lives), and the
+       top/bottom are flush with the window edges too. The left side
+       butts up against the taskbar, so its corners are softened to
+       match the taskbar's own --radius-lg. */
+    border-top-left-radius: var(--radius-lg);
+    border-bottom-left-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+/* Active-group border highlight — drawn by JS via inline style, so no
+   rule here; this comment is a placeholder so the section is easy
+   to find. */
+
+/* =====================================================================
+   TASKBAR — the left sidebar with shortcuts + live clock.
+   ===================================================================== */
+
+.taskbar {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: rgba(22, 27, 34, 0.8);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    padding-bottom: var(--gap-md);
+}
+.taskbar--collapsed {
+    align-items: center;
+    padding: var(--gap-md) 0;
+    cursor: pointer;
+}
+
+.taskbar__chevron {
+    width: 1.75rem;
+    height: 1.75rem;
+    color: var(--fg-muted);
+    flex-shrink: 0;
+    margin-top: var(--gap-sm);
+}
+
+.taskbar__label {
+    writing-mode: vertical-lr;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-top: var(--gap-xs);
+}
+
+.taskbar__clock {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1;
+    padding-bottom: var(--gap-sm);
+}
+.taskbar__clock-line {
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+}
+
+.taskbar__header {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    padding: var(--gap-md) var(--gap-md) var(--gap-sm);
+}
+.taskbar__collapse-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius);
+    color: var(--fg-muted);
+    flex-shrink: 0;
+    transition: all var(--t-fast);
+}
+.taskbar__collapse-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--fg);
+}
+.taskbar__title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--fg);
+}
+
+.taskbar__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+    padding: 0 var(--gap-sm);
+}
+
+.taskbar__item {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-md);
+    padding: var(--gap-sm) var(--gap-sm);
+    border-radius: var(--radius);
+    color: var(--fg-muted);
+    transition: all var(--t-fast);
+    cursor: pointer;
+}
+.taskbar__item:hover {
+    background: var(--bg-elevated);
+    color: var(--fg);
+}
+.taskbar__item:active {
+    transform: scale(0.9);
+    transition-duration: 75ms;
+}
+
+.taskbar__item-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+}
+
+.taskbar__bottom-clock {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: var(--gap-md);
+}
+.taskbar__bottom-clock-time {
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* =====================================================================
+   CHAT PANEL — message list, input footer, action buttons.
+   ===================================================================== */
+
+.chat-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    color: var(--fg);
+}
+
+.chat-panel__loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-muted);
+}
+
+.chat-panel__messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--gap-lg) var(--gap-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-md);
+}
+
+.chat-panel__loading-more {
+    align-self: center;
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    padding: var(--gap-sm) 0;
+}
+
+.chat-panel__footer {
+    padding: var(--gap-md) var(--gap-lg);
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.chat-panel__form {
+    display: flex;
+    gap: var(--gap-md);
+    align-items: center;
+}
+
+.chat-panel__mic-wrapper {
+    position: relative;
+    display: inline-flex;
+}
+
+.chat-panel__error {
+    margin-top: var(--gap-sm);
+    font-size: 0.75rem;
+    color: var(--destructive);
+    overflow-wrap: break-word;
+}
+
+/* Chat message bubbles — user messages on the right (accent-ish), 
+   assistant on the left (elevated surface). Tool call/result cards
+   get a compact monospace treatment. */
+.message {
+    max-width: var(--chat-msg-max-w);
+    padding: var(--gap-md) var(--gap-lg);
+    border-radius: 1.25rem;
+    line-height: 1.625;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+}
+
+.message--user {
+    align-self: flex-end;
+    background: var(--bg-sunken);
+    border-bottom-right-radius: 0.25rem;
+}
+.message--assistant {
+    align-self: flex-start;
+    background: var(--bg-elevated);
+    border-bottom-left-radius: 0.25rem;
+}
+
+.message--tool {
+    align-self: flex-start;
+    max-width: var(--chat-msg-max-w);
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    background: color-mix(in oklch, var(--bg-elevated) 60%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 1.25rem;
+    border-bottom-left-radius: 0.25rem;
+    padding: var(--gap-sm) var(--gap-md);
+    font-family: var(--font-mono);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--gap-sm);
+}
+.message--tool-result {
+    background: color-mix(in oklch, var(--bg-elevated) 40%, transparent);
+}
+
+.message__tool-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    margin-top: 0.125rem;
+    flex-shrink: 0;
+}
+
+.message__tool-name {
+    color: var(--fg);
+}
+.message__tool-args {
+    color: var(--fg-muted);
+}
+.message__tool-content {
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+/* Markdown content inside assistant messages. */
+.message__body ul,
+.message__body ol {
+    list-style-position: inside;
+    padding-left: 1.25rem;
+    margin: 0.25rem 0;
+}
+.message__body li {
+    margin: 0.125rem 0;
+}
+.message__body p {
+    margin: 0;
+}
+
+/* =====================================================================
+   AVATAR PANEL — the agent image, centered with idle motion + zoom.
+   ===================================================================== */
+
+.avatar-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: var(--gap-lg);
+    overflow: hidden;
+    user-select: none;
+}
+.avatar-panel__zoom-wrap {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.avatar-panel__img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: var(--radius);
+    transform-origin: bottom;
+    cursor: pointer;
+}
+

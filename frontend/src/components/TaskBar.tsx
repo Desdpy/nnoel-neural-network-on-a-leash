@@ -101,16 +101,16 @@ export function TaskBar({
       <button
         type="button"
         onClick={onToggle}
-        className="flex flex-col items-center py-3 w-full h-full bg-[rgba(22,27,34,0.8)] rounded-[20px] cursor-pointer"
+        className="taskbar taskbar--collapsed"
       >
-        <ChevronRight className="w-7 h-7 text-muted-fg shrink-0 mt-2" />
-        <div className="[writing-mode:vertical-lr] text-xs tracking-widest text-muted-fg uppercase mt-1">
+        <ChevronRight className="taskbar__chevron" />
+        <div className="taskbar__label">
           apps
         </div>
         <div className="flex-1" />
-        <div className="flex flex-col items-center leading-none pb-2">
-          <span className="text-sm text-muted-fg">{h}</span>
-          <span className="text-sm text-muted-fg">{m}</span>
+        <div className="taskbar__clock">
+          <span className="taskbar__clock-line">{h}</span>
+          <span className="taskbar__clock-line">{m}</span>
         </div>
       </button>
     );
@@ -118,39 +118,39 @@ export function TaskBar({
 
   // Expanded mode: full-width sidebar with app buttons and a clock
   return (
-    <div className="flex flex-col w-full h-full bg-[rgba(22,27,34,0.8)] rounded-[20px] overflow-hidden pb-3">
-      <div className="flex items-center gap-2 px-3 pt-3 pb-2">
+    <div className="taskbar">
+      <div className="taskbar__header">
         <button
           type="button"
           onClick={onToggle}
-          className="flex items-center justify-center w-7 h-7 rounded-lg hover:bg-surface-raised transition-all text-muted-fg hover:text-text-base shrink-0"
+          className="taskbar__collapse-btn"
           title="Collapse"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <span className="text-sm font-medium text-text-base truncate">
+        <span className="taskbar__title truncate">
           Nnoel
         </span>
       </div>
 
-      <div className="flex flex-col gap-1 px-2">
+      <div className="taskbar__list">
         {allTasks.map(({ id, label, icon: Icon, onClick }) => (
           <button
             key={id}
             type="button"
             onClick={onClick}
-            className="flex items-center gap-3 px-2 py-2 rounded-lg text-muted-fg hover:bg-surface-raised hover:text-text-base transition-all active:scale-90 active:duration-75 cursor-pointer"
+            className="taskbar__item"
           >
-            <Icon className="w-5 h-5 shrink-0" />
-            <span className="text-sm truncate">{label}</span>
+            <Icon className="taskbar__item-icon" />
+            <span className="truncate">{label}</span>
           </button>
         ))}
       </div>
 
       <div className="flex-1" />
 
-      <div className="flex flex-col items-center pb-3">
-        <span className="text-sm text-muted-fg tabular-nums">{h}:{m}:{s}</span>
+      <div className="taskbar__bottom-clock">
+        <span className="taskbar__bottom-clock-time">{h}:{m}:{s}</span>
       </div>
     </div>
   );

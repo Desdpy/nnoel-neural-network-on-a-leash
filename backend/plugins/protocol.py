@@ -1,22 +1,24 @@
 """Protocol definitions for the Nnoel plugin system.
 
-A plugin is two co-located folders paired by a shared ``<id>``:
+A plugin is a single self-contained folder under the repo-root
+``plugins/`` directory, paired by a shared ``<id>``:
 
-  - ``backend/plugins/<id>/``  — the Python tool, custom HTTP
-    endpoints, system-prompt guidance, and UI manifest. Must
-    expose a module-level ``plugin`` attribute satisfying the
-    :class:`Plugin` Protocol below.
-  - ``frontend/src/plugins/<id>/`` — the optional React panel
-    component and a default-exporting ``index.ts`` manifest that
-    Vite's ``import.meta.glob`` picks up at build time.
+  - ``plugins/<id>/backend/``  — the Python tool, custom HTTP
+    endpoints, system-prompt guidance, and UI manifest. Must expose a
+    module-level ``plugin`` attribute satisfying the :class:`Plugin`
+    Protocol below.
+  - ``plugins/<id>/frontend/`` — the optional React panel component
+    and a default-exporting ``index.ts`` manifest. The container's
+    entrypoint copies this into the Vite project on startup, then
+    rebuilds the bundle so the panels are picked up.
 
-The ``registry.py`` module in this package walks ``backend/plugins/``
-at import time, imports each plugin's ``plugin.py`` as
-``plugins.<id>.plugin``, and aggregates them into the module-level
-surface (``TOOLS``, ``HANDLERS``, ``execute``, ``routers``,
-``system_prompt_fragments``, ``frontend_manifests``) that the rest of
-the backend (``routes.py``, ``server.py``) consumes without needing
-to know about any individual plugin.
+The ``registry.py`` module in this package walks ``plugins/<id>/backend/``
+at import time, imports each plugin's ``backend/plugin.py`` as
+``nnoel_plugins.<id>.backend.plugin`` (via a synthetic parent module),
+and aggregates them into the module-level surface (``TOOLS``,
+``HANDLERS``, ``execute``, ``routers``, ``system_prompt_fragments``,
+``frontend_manifests``) that the rest of the backend consumes without
+needing to know about any individual plugin.
 """
 
 from typing import Any, Callable, Optional, Protocol, TypedDict, runtime_checkable

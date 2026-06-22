@@ -3,30 +3,51 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN npm ci
-# Copying the full frontend tree picks up ``frontend/src/plugins/<id>/``
-# (the frontend half of each plugin) so Vite's ``import.meta.glob`` can
-# bundle every plugin's React component into the static dist.
+# Copy the frontend source. ``.dockerignore`` keeps ``node_modules``
+# out of the build context (we installed it via ``npm ci``) and also
+# excludes the top-level ``plugins/`` (the user's runtime plugin
+# staging dir). The resulting dist contains the loader only; the
+# runtime entrypoint rebuilds with user plugins after a mount.
 COPY frontend/ .
 RUN npm run build
 
-# === Stage 2: Python runtime with backend + prebuilt frontend ===
+# === Stage 2: Python runtime + Node 22 for on-demand frontend rebuild ===
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install build deps for llama-cpp-python and sherpa-onnx (both have C++ extensions).
+# Install build deps (llama-cpp-python, sherpa-onnx need C++) plus
+# Node.js 22 + curl for the runtime frontend rebuild done by the
+# entrypoint when the user mounts frontend plugins.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential cmake curl \
+        build-essential cmake curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source code. ``COPY backend/`` recursively includes every plugin
-# under ``backend/plugins/<id>/``; the Python registry discovers them at
-# server startup. The frontend dist (with plugin TSX already bundled)
-# comes from the builder stage.
+# Mount target for the co-located user plugin dir. .dockerignore
+# strips the repo's ``plugins/`` from the build context, so this
+# is always empty in the image; the docker-compose mount provides
+# the user's plugins at runtime.
+RUN mkdir -p /app/plugins
+
+# Frontend source (so the entrypoint can rebuild with mounted user
+# plugins) + node_modules from the builder (same Node 22, so the
+# prebuilt deps are compatible).
+COPY frontend/ frontend/
+COPY --from=frontend-builder /build/frontend/node_modules frontend/node_modules/
+
+# Backend (loader in ``backend/plugins/`` + the entrypoint/sync scripts
+# + empty ``user_plugins/`` was removed; the registry now scans the
+# unified ``plugins/`` dir).
 COPY backend/ backend/
 COPY --from=frontend-builder /build/frontend/dist frontend/dist/
 
-# Install Python dependencies
+# Install Python dependencies.
 RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# Entrypoint: normalise user plugins (copy frontend halves into the
+# Vite tree), optionally rebuild the bundle, then exec the backend.
+RUN chmod +x backend/entrypoint.sh backend/sync_plugins.sh
 
 # Download the GGUF model + multimodal projection from Hugging Face
 RUN mkdir -p /app/models && \
@@ -36,8 +57,6 @@ RUN mkdir -p /app/models && \
         "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-BF16.gguf"
 
 # Download the Piper TTS model (en_US-amy-medium, single female voice).
-# The model directory ships espeak-ng-data and tokens alongside the ONNX
-# weights — no separate download is needed.
 RUN mkdir -p /app/models/tts/vits-piper-en_US-amy-medium && \
     curl -#L -o /tmp/piper-tts.tar.bz2 \
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2" && \
@@ -45,18 +64,12 @@ RUN mkdir -p /app/models/tts/vits-piper-en_US-amy-medium && \
     rm /tmp/piper-tts.tar.bz2 && \
     ls -lh /app/models/tts/vits-piper-en_US-amy-medium/
 
-# Download the Silero VAD model used by the STT pipeline.  This is a
-# tiny ~2 MB ONNX file that sherpa-onnx uses for voice-activity
-# detection — it gates when the ASR runs so we don't transcribe
-# silence.
+# Download the Silero VAD model.
 RUN mkdir -p /app/models/stt && \
     curl -#L -o /app/models/stt/silero_vad.onnx \
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 
-# Download the Parakeet TDT 0.6B v3 int8 ASR model.  Supports 25
-# European languages (en, de, fr, es, it, pt, nl, pl, ru, uk, …) with
-# state-of-the-art accuracy (~2% WER on English).  Extracted size is
-# ~640 MB and it runs at RTF ~0.2 on a single CPU thread.
+# Download the Parakeet TDT 0.6B v3 int8 ASR model.
 RUN curl -#L -o /tmp/parakeet-stt.tar.bz2 \
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2" && \
     tar xf /tmp/parakeet-stt.tar.bz2 -C /app/models/stt/ && \
@@ -65,4 +78,6 @@ RUN curl -#L -o /tmp/parakeet-stt.tar.bz2 \
 
 EXPOSE 5000
 
-CMD ["python3", "backend/server.py"]
+# Entrypoint: syncs user plugins into the frontend tree, rebuilds
+# if any frontend plugins are present, then execs the backend.
+CMD ["backend/entrypoint.sh"]

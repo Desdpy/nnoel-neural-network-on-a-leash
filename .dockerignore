@@ -14,3 +14,8 @@ models/
 start.sh
 docker-compose.yml
 docker-compose.prod.yml
+
+# --- plugin hotload: strip the co-located host plugin staging dir
+# from the build context so the image is barebones. Users supply
+# every plugin via the runtime volume mount (./plugins:/app/plugins).
+plugins/
