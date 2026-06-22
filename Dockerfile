@@ -1,7 +1,16 @@
 # === Stage 1: Build the Vite frontend ===
 FROM node:22-alpine AS frontend-builder
 WORKDIR /build/frontend
+# Copy package files + the postinstall script. The package.json
+# ``postinstall`` hook (``scripts/sync-root-symlink.cjs``) creates
+# a root-level ``node_modules`` symlink for editor ergonomics on
+# plugin source under ``plugins/``; the build itself doesn't need
+# the symlink, but we run the script so the install flow stays
+# identical to a developer machine. The script is safe to run in
+# the container — it warns and continues if the symlink can't be
+# created, so the build never depends on the symlink existing.
 COPY frontend/package*.json ./
+COPY frontend/scripts/ ./scripts/
 RUN npm ci
 # Copy the frontend source. ``.dockerignore`` keeps ``node_modules``
 # out of the build context (we installed it via ``npm ci``) and also
