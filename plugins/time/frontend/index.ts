@@ -10,10 +10,6 @@ unchanged.
 
 import type { FrontendPlugin } from "@/plugins/types";
 import { TimePanel } from "./TimePanel";
-// Plugin-owned styles — imported here so Vite bundles them with the
-// rest of the plugin. The main app's design tokens (--fg, --border,
-// etc.) are available because the global stylesheet loads first.
-import "./time-panel.css";
 
 export default {
   id: "time",

@@ -45,17 +45,25 @@ function ScanOverlay() {
     <div
       data-nnoel-scan-overlay
       aria-hidden="true"
-      className="scan-overlay"
+      className="pointer-events-none absolute inset-0 overflow-hidden"
     >
       {/* One horizontal scan line that bounces top->bottom->top
           continuously (alternate direction). The parent's
           overflow-hidden handles the natural fade-in/out at the
           edges — the line is fully off-screen above at top:-2rem
-          and fully below at top:100%. */}
+          and fully below at top:100%. Gradient + animation are
+          inlined because the corresponding Tailwind utilities
+          (bg-gradient-to-b, from-/via-/to-transparent,
+          animate-[...]) aren't in the generated CSS for this
+          plugin (the plugin lives outside the Vite root, so its
+          file isn't picked up by Tailwind's source scanner). */}
       <div
-        className="scan-overlay__line"
+        className="absolute right-0 h-8 w-full"
         style={{
           top: 0,
+          background:
+            "linear-gradient(to bottom, transparent, rgba(34, 211, 238, 0.35), transparent)",
+          animation: "nnoel-scan-bounce 1.5s ease-in-out infinite alternate",
         }}
       />
     </div>
@@ -387,24 +395,28 @@ export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParamete
   }
 
   return (
-    <div className="time-panel">
+    <div className="relative flex h-full flex-col overflow-hidden text-text-base">
       {/* Scan-line overlay: only present on panels opened as a side
           effect of an LLM tool call. Two horizontal sweeps run during
           the 5s the panel is on screen, plus a faint pulse on the
           border, so the user gets a clear "fresh from the model" cue. */}
       {seed.scan && <ScanOverlay />}
 
-      <div className="time-panel__scroll">
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             submit();
           }}
         >
-          <div ref={inputWrapperRef} className="time-panel__input-wrap">
-            <MapPin className="time-panel__input-icon" />
+          <div ref={inputWrapperRef} className="relative">
+            <MapPin
+              className="pointer-events-none absolute top-2.5 h-4 w-4 text-muted-fg"
+              style={{ left: "0.625rem" }}
+            />
             <Textarea
-              className="time-panel__textarea"
+              className="min-h-10! pl-8"
+              style={{ maxHeight: "8rem" }}
               placeholder="e.g. Tokyo, Japan, Europe… (empty = local time)"
               rows={1}
               value={input}
@@ -428,8 +440,12 @@ export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParamete
               <ul
                 id="time-suggestions"
                 role="listbox"
-                style={dropdownStyle}
-                className="time-panel__dropdown"
+                style={{
+                  ...dropdownStyle,
+                  background: "var(--popover)",
+                  boxShadow: "0 25px 50px -12px rgb(0 0 0 / 0.5)",
+                }}
+                className="overflow-y-auto rounded-lg border border-border"
               >
                 {suggestions.map((loc, i) => (
                   <li
@@ -441,9 +457,17 @@ export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParamete
                       selectSuggestion(loc);
                     }}
                     onMouseEnter={() => setHighlight(i)}
-                    className={`time-panel__dropdown-item ${i === highlight ? "time-panel__dropdown-item--highlighted" : ""}`}
+                    style={
+                      i === highlight
+                        ? {
+                            background: "var(--muted)",
+                            color: "var(--foreground)",
+                          }
+                        : { color: "var(--muted-foreground)" }
+                    }
+                    className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm"
                   >
-                    <MapPin className="time-panel__dropdown-icon" />
+                    <MapPin className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">{loc}</span>
                   </li>
                 ))}
@@ -453,26 +477,41 @@ export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParamete
         </form>
 
         {error && (
-          <div className="time-panel__error">
+          <div
+            className="rounded-lg border px-3 py-2 text-sm"
+            style={{
+              color: "var(--destructive)",
+              backgroundColor:
+                "color-mix(in oklch, var(--destructive) 10%, transparent)",
+              borderColor:
+                "color-mix(in oklch, var(--destructive) 30%, transparent)",
+            }}
+          >
             {error}
           </div>
         )}
 
         {result && TIME_RESULT.test(result.text) ? (
-          <div className="time-panel__result">
-            <div className="time-panel__result-header">
-              <MapPin className="time-panel__result-header-icon" />
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface-raised p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-fg">
+              <MapPin className="h-3.5 w-3.5" />
               <span className="truncate">{locationLabel}</span>
             </div>
-            <div className="time-panel__time">
+            <div
+              className="font-mono tabular-nums"
+              style={{ fontSize: "2.25rem", fontWeight: 300, letterSpacing: "-0.025em" }}
+            >
               {display.timeLabel}
             </div>
-            <div className="time-panel__date">
+            <div className="flex items-center gap-2 text-sm text-muted-fg">
               <span>{display.dateLabel}</span>
               {tzAbbr && (
                 <>
-                  <span className="time-panel__date-sep" aria-hidden="true">·</span>
-                  <span className="time-panel__tz-badge">
+                  <span className="text-muted-fg" aria-hidden="true">·</span>
+                  <span
+                    className="rounded-sm border border-border bg-surface-deep font-mono text-xs uppercase tracking-widest"
+                    style={{ padding: "0.125rem 0.375rem" }}
+                  >
                     {tzAbbr}
                   </span>
                 </>
@@ -480,7 +519,10 @@ export function TimePanel({ api, params }: IDockviewPanelProps<TimePanelParamete
             </div>
           </div>
         ) : result ? (
-          <div className="time-panel__error-result">
+          <div
+            className="whitespace-pre-wrap rounded-2xl border border-border bg-surface-raised/60 px-4 py-3 text-sm text-muted-fg"
+            style={{ overflowWrap: "break-word" }}
+          >
             {result.text}
           </div>
         ) : null}
