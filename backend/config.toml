@@ -29,7 +29,7 @@ enabled = true
 # Combined with [llama] n_threads and [tts] num_threads this should
 # not exceed the host's total core count.  Parakeet int8 runs at
 # RTF ~0.2 on a single modern x86 CPU thread.
-num_threads = 1
+# num_threads = 1
 # Model type: "parakeet" (sherpa-onnx's NeMo Parakeet TDT 0.6B v3 int8).
 model_type = "parakeet"
 # Path to the STT model directory (relative to project root or absolute).

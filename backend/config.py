@@ -28,14 +28,11 @@ if not os.path.exists(LLM_MMPROJ_PATH):
 LLM_N_CTX = int(config["llama"].get("n_ctx", 4096))
 _tts_num_threads = int(config.get("tts", {}).get("num_threads", 2))
 TTS_WORKERS = int(config.get("tts", {}).get("workers", 2))
-_stt_num_threads = int(config.get("stt", {}).get("num_threads", 1))
 _total_threads = os.cpu_count() or 1
-# Reserve headroom for both TTS and STT on top of the LLM.  With
-# auto-listen enabled the user can have the STT recording while the
-# LLM is still finishing the previous turn's final token (TTS may
-# be playing too) — in that overlap window all three can be in
-# flight, so we subtract all three to avoid thread contention.
-_default_n_threads = max(1, _total_threads - _tts_num_threads - _stt_num_threads)
+# Reserve headroom for TTS on top of the LLM.  TTS synthesis for the
+# previous turn can be playing while the LLM is generating the next
+# response, so we subtract its threads to avoid contention.
+_default_n_threads = max(1, _total_threads - _tts_num_threads)
 LLM_N_THREADS = config["llama"].get("n_threads", _default_n_threads)
 LLM_TEMPERATURE = config["llama"].get("temperature")
 LLM_TOP_P = config["llama"].get("top_p")
@@ -76,7 +73,7 @@ TTS_FIRST_CHUNK_WORDS = int(config.get("tts", {}).get("adaptive_first_chunk_word
 # the WebSocket endpoint rejects connections and the frontend hides
 # the mic button.
 STT_ENABLED = bool(config.get("stt", {}).get("enabled", False))
-STT_NUM_THREADS = int(config.get("stt", {}).get("num_threads", 1))
+STT_NUM_THREADS = int(config.get("stt", {}).get("num_threads", _total_threads))
 STT_MODEL_TYPE = str(config.get("stt", {}).get("model_type", "parakeet"))
 _raw_stt_model_dir = config.get("stt", {}).get(
     "model_dir", str(BASE_DIR / "models" / "stt" / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
