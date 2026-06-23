@@ -56,7 +56,6 @@ class TaskbarEntry(TypedDict, total=False):
     id: str
     label: str
     icon: str
-    action: str
     toolName: str
 
 

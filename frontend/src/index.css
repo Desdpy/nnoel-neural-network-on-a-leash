@@ -6,6 +6,14 @@
 @import "@fontsource-variable/geist";
 @import "./dockview.css";
 
+/* Plugins live outside the Vite root (``plugins/<id>/frontend/``),
+   so Tailwind v4's automatic source detection skips them and the
+   classes they reference never make it into the generated CSS —
+   manifest as e.g. ``pl-8`` silently disappearing from the
+   time-panel bundle. ``@source`` re-includes them so plugin code
+   behaves the same as in-tree code from Tailwind's perspective. */
+@source "../../plugins/*/frontend/**/*.{ts,tsx}";
+
 /* Dark mode variant — activates when parent has class "dark" */
 @custom-variant dark (&:is(.dark *));
 
@@ -23,6 +31,30 @@
     --color-muted-fg: var(--muted-foreground);
     --color-success: #4ade80;
     --color-warning: #fb923c;
+    /* shadcn tokens that the default ``@theme inline`` block above
+       does not expose. Without these, utility classes like
+       ``border-input``, ``bg-input``, ``text-muted-foreground``,
+       ``border-ring`` / ``ring-ring``, ``border-destructive``,
+       ``bg-popover`` etc. are not generated, and components that
+       rely on them (notably the ``Textarea`` used by the time
+       panel) render without borders, placeholders, focus rings, or
+       dark-mode state. */
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
 }
 
 /* Light theme (default) */
@@ -66,13 +98,13 @@
     --accent-foreground: #0d1117;
     --destructive: #ef4444;
     --border: #30363d;
-    --input: #21262d;
+    /* Match --border (was #21262d, which equalled --card and made
+       ``border-input`` invisible on the chat panel's footer that
+       uses ``bg-surface-raised`` = --card). The textarea's
+       ``bg-transparent`` inherits the card colour, so a border of
+       the same colour as the card vanishes. */
+    --input: #30363d;
     --ring: #58a6ff;
-}
-
-/* Avatar animations originate from the bottom edge */
-.motion-base {
-  transform-origin: bottom;
 }
 
 /* Global base reset */

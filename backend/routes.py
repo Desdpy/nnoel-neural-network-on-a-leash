@@ -20,7 +20,7 @@ from config import (
     TTS_WORKERS,
 )
 from fastapi import APIRouter, Body, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from llama import chat_stream, get_llm
 from log import get_logger
 from stt import _event_to_wire_dict, get_stt, stt_disabled
@@ -141,15 +141,6 @@ def get_config():
         "stt_enabled": STT_ENABLED,
         "plugins": tools.frontend_manifests,
     }
-
-
-@router.get("/agent-image")
-def agent_image():
-    """Serve the agent's avatar PNG.  Returns 404 if the file is missing."""
-    img = Path(__file__).parent / "assets" / "Nnoel.png"
-    if not img.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(img, media_type="image/png")
 
 
 @router.get("/ping")

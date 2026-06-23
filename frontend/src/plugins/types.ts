@@ -11,6 +11,7 @@
  */
 
 import type { ComponentType } from "react";
+import type { LucideIcon } from "lucide-react";
 
 export interface ToolPanelSpec {
   id: string;
@@ -27,14 +28,37 @@ export interface ToolPanelSpec {
     result: string,
     extra: Record<string, unknown>,
   ) => string;
+  /**
+   * When true, the taskbar launcher (and any other path that calls
+   * ``openPluginPanel``) reuses the existing single-instance panel
+   * instead of spawning a new one. Used by plugins whose panel is
+   * singleton — e.g. the agent-avatar, which is mounted at startup
+   * and should only ever have one instance, so a taskbar click
+   * focuses it rather than creating a duplicate.
+   */
+  focusExisting?: boolean;
 }
 
 export interface TaskbarEntry {
   id: string;
   label: string;
+  /**
+   * String name of the icon. Mirrored in the backend manifest so the
+   * ``/config`` payload stays serialisable, and used by the taskbar
+   * to look the icon up in its (core) fallback registry when the
+   * plugin does not self-host an icon via the ``Icon`` field below.
+   */
   icon: string;
-  action: string;
   toolName: string;
+  /**
+   * Lucide component to render for the taskbar shortcut. Takes
+   * precedence over ``iconRegistry[icon]`` so a plugin can ship its
+   * own icon (importing ``lucide-react`` directly in its ``index.ts``)
+   * without having to register the string name in the core taskbar.
+   * Strongly preferred for plugin-authored taskbar entries — the
+   * string-only path is kept as a fallback for built-in icons.
+   */
+  Icon?: LucideIcon;
 }
 
 export interface FrontendPlugin {

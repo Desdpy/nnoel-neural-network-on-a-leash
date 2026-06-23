@@ -1,5 +1,9 @@
 import type { IDockviewPanelProps } from "dockview";
-import { useAgentAvatar } from "../agent-avatar/useAgentAvatar";
+// Vite returns a hashed asset URL at build time; the PNG ships with
+// the plugin and is no longer fetched from a core HTTP endpoint, so
+// the plugin is fully self-contained.
+import avatarUrl from "./avatar.png";
+import { useAgentAvatar } from "./useAgentAvatar";
 
 // Displays the animated agent avatar — supports idle motion cycles,
 // mouse-press bounce, and a "getting close" zoom-in transition
@@ -32,11 +36,15 @@ export function AgentAvatarPanel(_props: IDockviewPanelProps) {
         {/* The avatar image itself — idle motion, bounce, and mouse interaction transforms */}
         <img
           ref={imgRef}
-          src="/agent-image"
+          src={avatarUrl}
           alt="Nnoel"
           draggable={false}
-          className="max-w-full max-h-full object-contain rounded-lg motion-base cursor-pointer"
+          className="max-w-full max-h-full object-contain rounded-lg cursor-pointer"
           style={{
+            // ``transform-origin: bottom`` was previously provided by
+            // a ``.motion-base`` class in core ``index.css``. Inlined
+            // here so the plugin does not depend on a core CSS class.
+            transformOrigin: "bottom",
             transform,
             transition: `transform ${duration}s ${timing}`,
           }}

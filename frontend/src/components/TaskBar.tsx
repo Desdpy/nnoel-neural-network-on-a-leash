@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   MessageSquare,
-  Bot,
-  Clock,
+  Puzzle,
   Settings,
   ChevronRight,
   ChevronLeft,
@@ -24,9 +23,9 @@ interface TaskBarProps {
   onLaunchPlugin?: (toolName: string) => void;
 }
 
-// Core taskbar shortcuts that are always present (chat, agent avatar,
-// settings). Plugin shortcuts are appended below and rendered through
-// the same button machinery.
+// Core taskbar shortcuts that are always present (chat, settings).
+// Plugin shortcuts — including the agent avatar — are appended
+// below and rendered through the same button machinery.
 const coreTasks: ReadonlyArray<{
   id: string;
   label: string;
@@ -34,15 +33,15 @@ const coreTasks: ReadonlyArray<{
   onClick?: () => void;
 }> = [
   { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "agent", label: "Agent", icon: Bot },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
 // Map a string icon name from a plugin's ``TaskbarEntry`` to a lucide
-// component. Keep this list small and curated; plugin authors pick from
-// the supported set when they author their manifest.
+// component. Used as a fallback when the plugin does not self-host an
+// icon via the ``Icon`` field on ``TaskbarEntry`` (the recommended
+// path for plugin-authored taskbar entries — see the comment on the
+// ``Icon`` field in ``frontend/src/plugins/types.ts``).
 const iconRegistry: Record<string, LucideIcon> = {
-  clock: Clock,
   cloud: Cloud,
   search: Search,
   notebook: NotebookPen,
@@ -90,7 +89,14 @@ export function TaskBar({
   const pluginTasks = (pluginEntries ?? []).map((entry) => ({
     id: entry.id,
     label: entry.label,
-    icon: iconRegistry[entry.icon] ?? Clock,
+    // Prefer the plugin's self-hosted icon so a plugin can be fully
+    // self-contained (no core edit required to introduce a new icon).
+    // Fall back to the core registry, then to ``Puzzle`` as a safe
+    // last resort so an unknown string never crashes the renderer.
+    // ``Puzzle`` is chosen because it semantically matches the
+    // plugin/extension metaphor and is visually distinct from common
+    // app icons, making a misconfigured entry easy to spot.
+    icon: entry.Icon ?? iconRegistry[entry.icon] ?? Puzzle,
     onClick: () => onLaunchPlugin?.(entry.toolName),
   }));
   const allTasks = [...coreTasks, ...pluginTasks];

@@ -8,6 +8,7 @@ on LLM-driven opens, ``"Time in <city>"`` per-instance titles) is
 unchanged.
 */
 
+import { Clock } from "lucide-react";
 import type { FrontendPlugin } from "@/plugins/types";
 import { TimePanel } from "./TimePanel";
 
@@ -45,8 +46,13 @@ export default {
   taskbar: {
     id: "time",
     label: "Time",
+    // ``icon`` is the string name mirrored in the backend manifest
+    // for the ``/config`` payload; ``Icon`` is the Lucide component
+    // the taskbar actually renders. Self-hosting ``Icon`` keeps the
+    // plugin self-contained — no core edit needed to register a new
+    // icon name.
     icon: "clock",
-    action: "launchTime",
+    Icon: Clock,
     toolName: "get_local_time",
   },
 } satisfies FrontendPlugin;

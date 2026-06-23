@@ -8,7 +8,6 @@ import type {
   BuiltInContextMenuItem,
 } from "dockview";
 import { ChatPanel } from "./components/ChatPanel";
-import { AgentAvatarPanel } from "./components/AgentAvatarPanel";
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 import { TaskBar } from "./components/TaskBar";
 import {
@@ -21,9 +20,6 @@ import {
   pluginTaskbarEntries,
   pluginToolToPanel,
 } from "./plugins/registry";
-import { createLogger } from "./lib/logger";
-
-const log = createLogger("App");
 
 // Remember the rect of the last few spawned floating panels so the
 // position finder can avoid stacking on top of them in its fallback
@@ -174,11 +170,10 @@ const SIDEBAR_WIDTH = 400;
 
 // Map panel component names to their React components for Dockview.
 // Core panels live here; plugin panels are merged in from the registry
-// (Vite glob picks up every ``frontend/src/plugins/*/index.ts`` at
-// build time).
+// (Vite glob picks up every ``plugins/*/frontend/index.ts`` at build
+// time).
 const components = {
   chatPanel: ChatPanel,
-  agentAvatarPanel: AgentAvatarPanel,
   ...pluginComponents,
 };
 
@@ -314,10 +309,20 @@ function App() {
   // auto-fetches on mount when it has no seeded result. This is the
   // generic launcher used by every plugin's taskbar shortcut; a
   // plugin's ``taskbar.toolName`` is what we look up here.
+  //
+  // Plugins whose panel is singleton (only one instance should ever
+  // exist — e.g. a single agent-avatar) set ``focusExisting: true``
+  // on their ``ToolPanelSpec``; the launcher then reuses the existing
+  // instance via ``openOrFocusPanel`` instead of spawning a new one.
   const openPluginPanel = (toolName: string) => {
     const spec = toolToPanel[toolName];
     if (!spec) return;
-    openNewPanel(spec, spec.params({}, "", {}));
+    const params = spec.params({}, "", {});
+    if (spec.focusExisting) {
+      openOrFocusPanel(spec, params);
+    } else {
+      openNewPanel(spec, params);
+    }
   };
 
   // Stable value for the context so consumers don't re-render on every
@@ -415,18 +420,15 @@ function App() {
       }
     });
 
-    // Add the two main panels side-by-side: Chat on the left, Agent avatar on the right
+    // Add the chat panel on the left. Plugin panels (including the
+    // agent avatar) are opened on demand by the user via the taskbar
+    // — see ``openPluginPanel`` and the plugin's own ``toolToPanel``
+    // spec. No plugin is mounted at startup so the plugin system
+    // stays self-contained: a new plugin never needs an edit here.
     api.addPanel({
       id: "chat",
       component: "chatPanel",
       title: "Chat",
-    });
-
-    api.addPanel({
-      id: "agent-avatar",
-      component: "agentAvatarPanel",
-      title: "Agent",
-      position: { direction: "right", referencePanel: "chat" },
     });
 
     // Add a collapsible right-side edge group (the "dock bar" / sidebar)
@@ -591,12 +593,6 @@ function App() {
 
     api.groups.forEach(addHoverFocus);
     api.onDidAddGroup(addHoverFocus);
-
-    // Fetch the agent's display name from the backend and update the tab title
-    fetch("/config")
-      .then((res) => res.json())
-      .then((data) => api.getPanel("agent-avatar")?.setTitle(data.agent.name))
-      .catch((err) => log.warn("Failed to fetch /config; agent tab title unchanged", err));
   };
 
   // Prevent dropping panels into the center of a group that already has grid content

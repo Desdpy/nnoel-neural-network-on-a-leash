@@ -74,4 +74,3 @@ export const IDLE_MOTIONS: Motion[] = [
     timing: "ease-in-out",
   },
 ];
-

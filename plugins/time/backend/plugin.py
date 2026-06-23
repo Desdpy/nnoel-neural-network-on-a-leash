@@ -74,7 +74,6 @@ class TimePlugin:
             "id": "time",
             "label": "Time",
             "icon": "clock",
-            "action": "launchTime",
             "toolName": "get_local_time",
         },
     }
