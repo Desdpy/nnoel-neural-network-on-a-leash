@@ -9,14 +9,18 @@
 //
 // Event flow (server → client):
 //   * ``{"type":"speech_start"}``   — user started talking.
-//   * ``{"type":"final","text":...}``   — complete utterance at the
-//                                         end of speech; no partial
-//                                         transcriptions are emitted
-//                                         mid-utterance.
+//   * ``{"type":"final","text":...,"lang":...}``
+//     — complete utterance at the end of speech; no partial
+//       transcriptions are emitted mid-utterance.  ``lang`` is the
+//       2-letter ISO 639-1 code detected by the backend's
+//       spoken-language-identification model (``"en"``, ``"de"``,
+//       ``"fr"``, …) or ``null`` if LID is disabled / couldn't
+//       classify the audio.  The field is always present on
+//       ``final`` events so the client can rely on a stable schema.
 //
 // The hook's caller (``ChatPanel``) is expected to call
-// ``onFinal(text)`` to auto-submit the chat message once the final
-// event arrives.
+// ``onFinal(text, lang)`` to auto-submit the chat message once the
+// final event arrives.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createLogger } from "./lib/logger";
@@ -34,6 +38,13 @@ interface SttServerEvent {
     | "error"
     | string;
   text?: string;
+  /**
+   * 2-letter ISO 639-1 language code detected by the backend's
+   * spoken-language-identification model.  Only present (and useful)
+   * on ``"final"`` events.  ``null`` when LID is disabled or the
+   * model couldn't classify the audio.
+   */
+  lang?: string | null;
 }
 
 export interface UseSttRecorderResult {
@@ -72,8 +83,15 @@ export interface UseSttRecorderResult {
 }
 
 export interface UseSttRecorderOptions {
-  /** Called once with the final text when the server emits a final event. */
-  onFinal: (text: string) => void;
+  /**
+   * Called once with the final text and detected language when the
+   * server emits a final event.  ``lang`` is the 2-letter ISO 639-1
+   * code from the backend's LID model (``"en"``, ``"de"``, ``"fr"``,
+   * …) or ``null`` when LID is disabled / couldn't classify the
+   * audio.  Consumers that don't care about the language can simply
+   * ignore the second argument — the signature is additive.
+   */
+  onFinal: (text: string, lang: string | null) => void;
   /**
    * Called once the moment the server's VAD reports ``speech_start``
    * — the silence→speech edge for the current utterance, *before* the
@@ -329,8 +347,15 @@ export function useSttRecorder({
           setLevel(0);
           const text = (event.text ?? "").trim();
           if (text) {
+            // ``lang`` is the 2-letter ISO 639-1 code from the
+            // backend's spoken-language-identification model, or
+            // ``null`` when LID is disabled / couldn't classify the
+            // audio.  Forward it as-is so the host can route on it
+            // (e.g. select a TTS voice, label the chat message) or
+            // just ignore it.
+            const lang = event.lang ?? null;
             try {
-              onFinalRef.current(text);
+              onFinalRef.current(text, lang);
             } catch (err) {
               log.warn("onFinal callback threw", err);
             }

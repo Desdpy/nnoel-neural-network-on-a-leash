@@ -37,9 +37,17 @@ model_type = "parakeet"
 model_dir = "models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 # Path to the Silero VAD model file (relative to project root or absolute).
 vad_model = "models/stt/silero_vad.onnx"
-# Language for the ASR model. Parakeet v3 supports 25 European languages:
-# en, de, bg, hr, cs, da, nl, et, fi, fr, el, hu, it, lv, lt, mt,
-# pl, pt, ro, sk, sl, es, sv, ru, uk
+# Default language label.  This is **not** a recogniser switch —
+# Parakeet TDT 0.6B v3 has a single 25-language vocabulary and
+# transcribes whichever of those languages the user happens to
+# speak.  Instead, this value is the fallback for the ``lang`` field
+# on each ``final`` WebSocket event when [lid] is disabled or
+# couldn't classify the utterance, so the wire format always has a
+# sensible value.  When [lid] is enabled, the detected 2-letter ISO
+# 639-1 code (``"en"``, ``"de"``, ``"fr"``, …) wins; this setting
+# is only used as a default.  Parakeet v3's 25 supported
+# languages are: en, de, bg, hr, cs, da, nl, et, fi, fr, el, hu,
+# it, lv, lt, mt, pl, pt, ro, sk, sl, es, sv, ru, uk.
 language = "en"
 # --- VAD parameters ---
 # Speech probability threshold (0.0–1.0). Higher = less sensitive.
@@ -55,6 +63,23 @@ vad_min_silence_duration = 0.8
 vad_min_speech_duration = 0.4
 # Maximum seconds of a single speech segment; forces a flush past this.
 vad_max_speech_duration = 30.0
+
+# Spoken-language identification (auto-detect the language of each
+# transcribed utterance).  Uses sherpa-onnx's Whisper-tiny
+# multilingual model.  When enabled, each ``final`` STT event gains
+# a ``lang`` field with a 2-letter ISO 639-1 code (``"en"``, ``"de"``,
+# ``"fr"``, etc.) or ``null`` if the model can't classify the
+# utterance.  Disabled automatically if the model files are missing.
+[lid]
+enabled = true
+# Number of ONNX Runtime intra-op threads for LID inference.  The
+# Whisper-tiny int8 model runs at ~RTF 0.04 on one x86 CPU thread,
+# so 1 thread is plenty; raise only if you see contention.
+num_threads = 1
+# Path to the Whisper-tiny LID model directory (relative to project
+# root or absolute).  Must contain tiny-encoder.int8.onnx,
+# tiny-decoder.int8.onnx, and tiny-tokens.txt.
+model_dir = "models/lid/sherpa-onnx-whisper-tiny"
 
 # Text-to-speech (Piper via sherpa-onnx).
 # The ONNX model files live under ``model_dir``. Set ``enabled = false``

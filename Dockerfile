@@ -85,6 +85,16 @@ RUN curl -#L -o /tmp/parakeet-stt.tar.bz2 \
     rm /tmp/parakeet-stt.tar.bz2 && \
     ls -lh /app/models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/
 
+# Download the Whisper-tiny spoken-language-identification model.
+# Used to auto-detect the language of each transcribed utterance
+# (covers ~30 languages, ~98 MB extracted, RTF ~0.04 on a single
+# x86 CPU thread).
+RUN curl -#L -o /tmp/lid-whisper-tiny.tar.bz2 \
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2" && \
+    tar xf /tmp/lid-whisper-tiny.tar.bz2 -C /app/models/lid/ && \
+    rm /tmp/lid-whisper-tiny.tar.bz2 && \
+    ls -lh /app/models/lid/sherpa-onnx-whisper-tiny/
+
 EXPOSE 5000
 
 # Entrypoint: syncs user plugins into the frontend tree, rebuilds

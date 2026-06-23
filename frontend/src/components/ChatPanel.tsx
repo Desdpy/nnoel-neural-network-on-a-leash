@@ -98,7 +98,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   // ``useChat``) is the one that runs — by the time the user speaks,
   // ``useChat`` has populated the ref.
   const stt = useSttRecorder({
-    onFinal: (text) => {
+    onFinal: (text, lang) => {
       // The barge-in (abort + TTS stop) for the STT path is handled
       // by ``onSpeechStart`` below the moment the VAD detects the
       // user is talking — by the time the final transcript arrives
@@ -106,6 +106,16 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
       // is muted, so ``sendText`` just starts a fresh turn with
       // the new text.  If the LLM was idle, ``sendText`` is a
       // plain "start a new turn" call.
+      //
+      // ``lang`` is the 2-letter ISO 639-1 code returned by the
+      // backend's spoken-language-identification model (``"en"``,
+      // ``"de"``, ``"fr"``, …) or ``null`` when LID is disabled or
+      // couldn't classify the utterance.  Currently only logged —
+      // a future change can thread it into the LLM prompt or use
+      // it to pick a TTS voice without further plumbing.
+      if (lang) {
+        log.debug("STT utterance language detected", { lang });
+      }
       sendTextRef.current(text).catch((err) => {
         log.warn("Auto-submit of STT transcript failed", err);
       });

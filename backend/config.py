@@ -96,3 +96,20 @@ STT_VAD_THRESHOLD = float(config.get("stt", {}).get("vad_threshold", 0.5))
 STT_VAD_MIN_SILENCE = float(config.get("stt", {}).get("vad_min_silence_duration", 0.8))
 STT_VAD_MIN_SPEECH = float(config.get("stt", {}).get("vad_min_speech_duration", 0.25))
 STT_VAD_MAX_SPEECH = float(config.get("stt", {}).get("vad_max_speech_duration", 30.0))
+
+# --- Spoken-language identification (Whisper-tiny int8 via sherpa-onnx) ---
+# Auto-detects the language of each transcribed utterance so the
+# server can attach a ``lang`` field to the ``final`` WebSocket event.
+# Defaults are no-op so the server can run even without the model
+# files.  ``LID_ENABLED`` is also force-disabled at runtime if any of
+# the expected model files are missing.
+LID_ENABLED = bool(config.get("lid", {}).get("enabled", False))
+LID_NUM_THREADS = int(config.get("lid", {}).get("num_threads", 1))
+_raw_lid_model_dir = config.get("lid", {}).get(
+    "model_dir", str(BASE_DIR / "models" / "lid" / "sherpa-onnx-whisper-tiny")
+)
+LID_MODEL_DIR = str(
+    Path(_raw_lid_model_dir)
+    if Path(_raw_lid_model_dir).is_absolute()
+    else BASE_DIR / _raw_lid_model_dir
+)

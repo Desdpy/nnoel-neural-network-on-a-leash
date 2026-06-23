@@ -23,7 +23,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, WebSocket, WebSocketD
 from fastapi.responses import FileResponse, StreamingResponse
 from llama import chat_stream, get_llm
 from log import get_logger
-from stt import get_stt, stt_disabled
+from stt import _event_to_wire_dict, get_stt, stt_disabled
 from text_chunker import TextChunker
 from tts import get_tts, tts_disabled
 
@@ -611,12 +611,18 @@ async def stt_websocket(websocket: WebSocket) -> None:
       * Client → server: raw int16-LE mono PCM at 16 kHz, sent as
         binary WebSocket frames.  Optionally a text frame ``"stop"``
         to request an early flush.
-      * Server → client: JSON objects, one per frame, ``{"type": ..., "text": ...}``:
+      * Server → client: JSON objects, one per frame, ``{"type": ..., "text": ..., ...}``:
         - ``"speech_start"`` — VAD detected the beginning of an utterance.
         - ``"final"``       — VAD endpoint or session flush; ``text`` is
           the final Parakeet transcription of the complete segment.
           No partial transcriptions are emitted mid-speech; transcription
-          happens once, at the end of each utterance.
+          happens once, at the end of each utterance.  When spoken-
+          language identification is enabled, ``lang`` is the 2-letter
+          ISO 639-1 code detected by the LID model (``"en"``, ``"de"``,
+          ``"fr"``, …); ``null`` if the model couldn't classify the
+          audio.  The field is always present on ``final`` events
+          (even when LID is disabled) so the client can rely on a
+          stable schema.
 
     Close codes:
       * ``1003`` — STT is disabled in config.
@@ -664,12 +670,19 @@ async def stt_websocket(websocket: WebSocket) -> None:
         max_workers=1, thread_name_prefix="stt"
     )
 
-    async def _send_event(event_type: str, text: str) -> None:
+    async def _send_event(event) -> None:
+        """Serialise an :class:`stt.SttEvent` and send it as JSON.
+
+        Uses :func:`stt._event_to_wire_dict` so optional fields
+        (``lang`` on ``"final"`` events) are included automatically
+        and the wire format stays in lockstep with the backend
+        dataclass.
+        """
         try:
-            await websocket.send_json({"type": event_type, "text": text})
+            await websocket.send_json(_event_to_wire_dict(event))
         except Exception as err:  # noqa: BLE001
             # Client likely closed; nothing useful we can do here.
-            log.debug("Failed to send STT event %r: %s", event_type, err)
+            log.debug("Failed to send STT event %r: %s", event.type, err)
 
     try:
         while True:
@@ -687,7 +700,7 @@ async def stt_websocket(websocket: WebSocket) -> None:
                     executor, session.feed_audio, chunk
                 )
                 for event in events:
-                    await _send_event(event.type, event.text)
+                    await _send_event(event)
             elif "text" in message and message["text"] == "stop":
                 # Client asked for an early flush; break and let the
                 # finally block drain the VAD.
@@ -712,7 +725,7 @@ async def stt_websocket(websocket: WebSocket) -> None:
         try:
             events = await loop.run_in_executor(executor, session.flush)
             for event in events:
-                await _send_event(event.type, event.text)
+                await _send_event(event)
         except Exception as err:  # noqa: BLE001
             log.debug("STT flush on close failed: %s", err)
         try:

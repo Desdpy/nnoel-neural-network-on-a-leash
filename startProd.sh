@@ -86,5 +86,17 @@ download_and_extract_if_missing \
     "$MODEL_DIR/stt" \
     "$STT_MODEL_DIR/encoder.int8.onnx"
 
+# --- Spoken Language ID (Whisper-tiny int8) ---
+# Used to auto-detect the language of each transcribed utterance
+# so the server can emit a ``lang`` field on the ``final`` WebSocket
+# event.  The Whisper-tiny multilingual model covers ~30 languages
+# and runs at ~RTF 0.04 on a single x86 CPU thread, so per-utterance
+# detection adds <100 ms to the STT pipeline.  ~98 MB extracted.
+LID_MODEL_DIR="$MODEL_DIR/lid/sherpa-onnx-whisper-tiny"
+download_and_extract_if_missing \
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2" \
+    "$MODEL_DIR/lid" \
+    "$LID_MODEL_DIR/tiny-encoder.int8.onnx"
+
 # Run the FastAPI server
 python3 backend/server.py
