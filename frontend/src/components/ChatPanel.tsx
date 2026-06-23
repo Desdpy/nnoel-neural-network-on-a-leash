@@ -99,13 +99,25 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   // ``useChat`` has populated the ref.
   const stt = useSttRecorder({
     onFinal: (text) => {
-      // If the LLM is still streaming a previous turn, ``sendText``
-      // handles barge-in by aborting the in-flight generation and
-      // replacing it with the new text.  If the LLM is idle, it just
-      // starts a new turn.
+      // The barge-in (abort + TTS stop) for the STT path is handled
+      // by ``onSpeechStart`` below the moment the VAD detects the
+      // user is talking — by the time the final transcript arrives
+      // here, the previous stream is already torn down and the TTS
+      // is muted, so ``sendText`` just starts a fresh turn with
+      // the new text.  If the LLM was idle, ``sendText`` is a
+      // plain "start a new turn" call.
       sendTextRef.current(text).catch((err) => {
         log.warn("Auto-submit of STT transcript failed", err);
       });
+    },
+    // Barge-in trigger: the moment the VAD confirms the user has
+    // started talking, abort the in-flight LLM generation and stop
+    // any in-flight TTS audio.  Without this, the user would have
+    // to finish their sentence before the assistant stops — which
+    // feels laggy.  Barge-in should feel immediate, so the cut-off
+    // fires on the silence→speech edge, not on the endpoint.
+    onSpeechStart: () => {
+      handleStopRef.current();
     },
   });
   // Refs to the latest auto-listen flag and STT recorder so the
@@ -125,6 +137,13 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
       // no-op until ``useChat`` populates the ref below
     },
   );
+  // Ref for ``handleStop`` so the STT recorder's ``onSpeechStart``
+  // callback can fire a barge-in (abort the in-flight LLM stream
+  // and stop any in-flight TTS audio) without ``useSttRecorder``
+  // having to be called *after* ``useChat`` returns.
+  const handleStopRef = useRef<() => void>(() => {
+    // no-op until ``useChat`` populates the ref below
+  });
 
   // TTS player.  Declared *after* the STT recorder so the
   // ``onPlaybackEnd`` callback can call ``stt.start()`` to re-arm
@@ -169,6 +188,7 @@ export function ChatPanel({ api }: IDockviewPanelProps) {
   // ``ttsPlayer`` (from ``useTtsPlayer``), and ``useTtsPlayer``
   // needs ``stt`` (from ``useSttRecorder``).
   sendTextRef.current = sendText;
+  handleStopRef.current = handleStop;
 
   // Probe /config once to learn whether the backend has STT enabled.
   // The endpoint also returns tools etc., so we keep the response

@@ -74,6 +74,20 @@ export interface UseSttRecorderResult {
 export interface UseSttRecorderOptions {
   /** Called once with the final text when the server emits a final event. */
   onFinal: (text: string) => void;
+  /**
+   * Called once the moment the server's VAD reports ``speech_start``
+   * — the silence→speech edge for the current utterance, *before* the
+   * VAD endpoint and the final transcript are available.  Use this
+   * for barge-in: abort the in-flight LLM generation and stop any
+   * in-flight TTS audio as soon as the user starts talking, rather
+   * than waiting for them to finish their sentence.
+   *
+   * The server emits ``speech_start`` exactly once per utterance (on
+   * the silence-to-speech edge), so this callback fires at most once
+   * per speech segment.  Optional — leave it out if you only care
+   * about the final transcript.
+   */
+  onSpeechStart?: () => void;
 }
 
 /**
@@ -88,6 +102,7 @@ function buildWsUrl(): string {
 
 export function useSttRecorder({
   onFinal,
+  onSpeechStart,
 }: UseSttRecorderOptions): UseSttRecorderResult {
   const [isRecording, setIsRecording] = useState(false);
   // Normalised RMS level in [0, 1], updated ~20 Hz from the audio
@@ -110,6 +125,12 @@ export function useSttRecorder({
   // forcing the socket to be re-created on every render.
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  // Same treatment for ``onSpeechStart`` — the WebSocket message
+  // handler fires it on the VAD's silence→speech edge so the host
+  // can do an early barge-in (abort + TTS stop) without waiting for
+  // the final transcript.
+  const onSpeechStartRef = useRef(onSpeechStart);
+  onSpeechStartRef.current = onSpeechStart;
   // While the WebSocket is closing we ignore transient "is not open"
   // errors from ``send`` so a normal stop doesn't spam the console.
   const stoppingRef = useRef(false);
@@ -278,8 +299,17 @@ export function useSttRecorder({
           // The server's Silero VAD has confirmed that real speech
           // is in the mic signal.  Drives the "we hear you talking"
           // state of the mic button (the level ring also lights up
-          // in a different colour when this is set).
+          // in a different colour when this is set) and fires the
+          // ``onSpeechStart`` callback so the host can do an early
+          // barge-in (abort the in-flight LLM generation, stop any
+          // in-flight TTS audio) without waiting for the final
+          // transcript to arrive.
           setIsSpeechDetected(true);
+          try {
+            onSpeechStartRef.current?.();
+          } catch (err) {
+            log.warn("onSpeechStart callback threw", err);
+          }
           return;
         }
         if (event.type === "error") {

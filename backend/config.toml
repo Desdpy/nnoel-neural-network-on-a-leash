@@ -90,7 +90,7 @@ max_chars = 140
 # Words threshold for the *first* chunk of a reply. Smaller than
 # the steady-state threshold so the user hears Nnoel start talking
 # sooner.
-adaptive_first_chunk_words = 4
+adaptive_first_chunk_words = 1
 
 [agent]
 name = "Nnoel"

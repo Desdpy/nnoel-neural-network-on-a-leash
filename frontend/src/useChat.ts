@@ -342,23 +342,20 @@ export function useChat(
   // place that owns the abort controller, the AudioContext resume,
   // and the streaming event loop.
   //
-  // Barge-in: if a request is already in flight, the new text
-  // aborts the old request, drops any in-flight TTS audio, and
-  // supersedes the old stream.  The previously-appended user
-  // message stays in the chat history (so the user can see what
-  // they asked); only the partial assistant reply is replaced.
+  // Barge-in: the abort + TTS-stop for the STT path now happens in
+  // ``useSttRecorder``'s ``onSpeechStart`` hook — the moment the VAD
+  // detects the user is talking, *before* the final transcript is
+  // available.  The form-submit path calls ``stopPreviousAction``
+  // itself in ``handleSubmit`` (the textarea is disabled while the
+  // LLM is responding, so a typed submit only fires when there's
+  // nothing to abort).  The generation bump below makes any late
+  // events from the old stream (already in the JS event loop or the
+  // read buffer) be silently dropped by ``applyEvent``.
   const sendText = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      // --- Barge-in: cancel the in-flight stream if any -----------------
-      // Same as the Stop button: tear down the in-flight fetch and
-      // mute the TTS so the user doesn't hear leftover audio over
-      // the new request.  The generation bump below makes any late
-      // events from the old stream (already in the JS event loop or
-      // the read buffer) be silently dropped by ``applyEvent``.
-      stopPreviousAction();
       streamGenerationRef.current += 1;
       const myGeneration = streamGenerationRef.current;
 
@@ -515,9 +512,17 @@ export function useChat(
     [applyEvent, options],
   );
 
-  // Form submit handler.  Just forwards the textarea value to ``sendText``.
+  // Form submit handler.  Forwards the textarea value to ``sendText``
+  // and — as a safety net — tears down any in-flight stream and
+  // queued TTS audio first.  In normal use the textarea is disabled
+  // while the LLM is responding, so a typed submit only fires when
+  // there is nothing to abort; this is a belt-and-braces guard for
+  // any future path that lets the user submit during a response.
+  // The STT path's barge-in is handled earlier, in
+  // ``useSttRecorder``'s ``onSpeechStart`` hook.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    stopPreviousAction();
     await sendText(inputValue);
   };
 
