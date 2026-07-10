@@ -43,3 +43,6 @@ models/
 
 # Per-user chat data
 data/
+
+# Plugins directory
+plugins/
