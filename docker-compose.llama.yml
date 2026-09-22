@@ -1,0 +1,30 @@
+services:
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    command: >
+      --model /models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+      --mmproj /models/gemma-4-12B-QAT-mmproj-BF16.gguf
+      --flash-attn on
+      --ctx-size 32768
+      --n-gpu-layers 999
+      --temperature 1.0
+      --top-p 0.95
+      --top-k 64
+    ports:
+      - "11434:8080"
+    volumes:
+      - ./test:/models:Z
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+
+
+
+# --model-draft /models/mtp-gemma-4-12B-it.gguf
+# --spec-type draft-mtp
+# --spec-draft-n-max 4
