@@ -16,31 +16,11 @@ PORT = int(config["server"]["port"])
 
 BASE_DIR = Path(__file__).parent.parent
 
-# --- Model paths ---
-# The main GGUF model file (required)
-LLM_MODEL_PATH = str(BASE_DIR / "models" / "main.gguf")
-# The multimodal projection file (optional — set to None if missing)
-LLM_MMPROJ_PATH = str(BASE_DIR / "models" / "main-mmproj.gguf")
-if not os.path.exists(LLM_MMPROJ_PATH):
-    LLM_MMPROJ_PATH = None
-
-# --- LLM sampling parameters (each may be None if not set in config) ---
-LLM_N_CTX = int(config["llama"].get("n_ctx", 4096))
-_tts_num_threads = int(config.get("tts", {}).get("num_threads", 2))
-TTS_WORKERS = int(config.get("tts", {}).get("workers", 2))
-_total_threads = os.cpu_count() or 1
-# Reserve headroom for TTS on top of the LLM.  TTS synthesis for the
-# previous turn can be playing while the LLM is generating the next
-# response, so we subtract its threads to avoid contention.
-_default_n_threads = max(1, _total_threads - _tts_num_threads)
-LLM_N_THREADS = config["llama"].get("n_threads", _default_n_threads)
-LLM_TEMPERATURE = config["llama"].get("temperature")
-LLM_TOP_P = config["llama"].get("top_p")
-LLM_TOP_K = config["llama"].get("top_k")
-LLM_MIN_P = config["llama"].get("min_p")
-LLM_PRESENCE_PENALTY = config["llama"].get("presence_penalty")
-LLM_REPEAT_PENALTY = config["llama"].get("repeat_penalty")
-LLM_CHAT_TEMPLATE_KWARGS = config["llama"].get("chat_template_kwargs", {})
+# --- LLM settings ---
+_llama_section = config.get("llama", {})
+LLAMA_SERVER_URL = _llama_section.get("url", "http://127.0.0.1:8080")
+LLAMA_SERVER_API_KEY = _llama_section.get("api_key", "")
+LLM_MODEL_NAME = _llama_section.get("model_name", "default")
 
 # --- Agent identity ---
 AGENT_NAME = config.get("agent", {}).get("name", "Agent")
@@ -72,6 +52,7 @@ TTS_FIRST_CHUNK_WORDS = int(config.get("tts", {}).get("adaptive_first_chunk_word
 # without the model files installed. When ``STT_ENABLED`` is false,
 # the WebSocket endpoint rejects connections and the frontend hides
 # the mic button.
+_total_threads = os.cpu_count() or 1
 STT_ENABLED = bool(config.get("stt", {}).get("enabled", False))
 STT_NUM_THREADS = int(config.get("stt", {}).get("num_threads", _total_threads))
 STT_MODEL_TYPE = str(config.get("stt", {}).get("model_type", "parakeet"))

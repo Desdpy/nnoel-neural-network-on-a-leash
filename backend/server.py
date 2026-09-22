@@ -13,7 +13,7 @@ from pathlib import Path
 # and are discovered at import time.
 import plugins  # noqa: E402
 
-from config import HOST, LLM_MODEL_PATH, PORT  # noqa: E402
+from config import HOST, PORT  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from log import get_logger  # noqa: E402
@@ -90,7 +90,6 @@ def run():
     import uvicorn
 
     print(f"Nnoel UI  \u2192 http://{HOST}:{PORT}")
-    print(f"Model     \u2192 {LLM_MODEL_PATH}")
     print()
 
     uvicorn.run(app, host=HOST, port=PORT)

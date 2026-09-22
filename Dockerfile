@@ -24,7 +24,7 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install build deps (llama-cpp-python, sherpa-onnx need C++) plus
+# Install build deps (sherpa-onnx need C++) plus
 # Node.js 22 + curl for the runtime frontend rebuild done by the
 # entrypoint when the user mounts frontend plugins.
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-llama-cpp-python
+httpx
 python-multipart
 numpy
 sherpa-onnx

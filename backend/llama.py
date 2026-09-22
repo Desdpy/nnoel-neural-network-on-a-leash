@@ -4,25 +4,12 @@ import threading
 import uuid
 from typing import Any
 
-from config import (
-    LLM_CHAT_TEMPLATE_KWARGS,
-    LLM_MIN_P,
-    LLM_MMPROJ_PATH,
-    LLM_MODEL_PATH,
-    LLM_N_CTX,
-    LLM_N_THREADS,
-    LLM_PRESENCE_PENALTY,
-    LLM_REPEAT_PENALTY,
-    LLM_TEMPERATURE,
-    LLM_TOP_K,
-    LLM_TOP_P,
-)
-from llama_cpp import Llama
-from llama_cpp.llama_chat_format import get_chat_completion_handler
+import httpx
+
+from config import LLAMA_SERVER_API_KEY, LLM_MODEL_NAME, LLAMA_SERVER_URL
 from log import get_logger
 
 log = get_logger("llama")
-
 
 def _gemma_args_to_json(s: str) -> str:
     """Normalise Gemma's tool-call arg syntax to standard JSON.
@@ -40,87 +27,7 @@ def _gemma_args_to_json(s: str) -> str:
     # inside an already-quoted string value can't be mistaken for a key.
     s = re.sub(r"([{,]\s*)([A-Za-z_]\w*)(\s*:)", r'\1"\2"\3', s)
     return s
-
-
-# Singleton — the LLM model is loaded once and cached here.
-_llm: Llama | None = None
-
-# Event that signals "the LLM is idle (not currently generating)".
-# Used to serialise concurrent ``llm.create_chat_completion()`` calls
-# so the second caller waits for the first to finish its current
-# token before starting.  This is what makes barge-in work without
-# a ``GGML_ASSERT`` crash: when the user starts speaking mid-response
-# the new request's ``chat_stream`` blocks here until the old one's
-# ``finally`` block fires and sets the event.  This is not a lock —
-# the LLM is never actually held blocked, it just runs to completion
-# naturally; the new caller just sleeps on the event until then.
-_llm_idle: threading.Event = threading.Event()
-_llm_idle.set()  # Idle at startup.
-
-
-def _make_template_handler(handler: Any, extra_kwargs: dict[str, Any]) -> Any:
-    """Wrap the default chat-template handler so extra kwargs (e.g. tokenizer
-    settings from config) are injected on every call."""
-
-    def wrapped(**kw: Any) -> Any:
-        return handler(**{**kw, **extra_kwargs})
-
-    return wrapped
-
-
-def get_llm() -> Llama:
-    """Lazy-load and return the singleton Llama model instance."""
-    global _llm
-    if _llm is None:
-        # Build the model kwargs from configuration
-        kwargs: dict[str, Any] = {
-            "model_path": LLM_MODEL_PATH,
-            "n_ctx": LLM_N_CTX,
-            "verbose": True,
-        }
-        # Apply the configured thread count. Defaults to (total cores − TTS
-        # threads) in config.py; override via [llama] n_threads in config.toml.
-        if LLM_N_THREADS:
-            kwargs["n_threads"] = int(LLM_N_THREADS)
-        # Attach a multimodal projection file if one exists on disk
-        if LLM_MMPROJ_PATH:
-            kwargs["mmproj"] = LLM_MMPROJ_PATH
-        _llm = Llama(**kwargs)
-
-    # Override the chat template handler with extra kwargs if configured
-    if LLM_CHAT_TEMPLATE_KWARGS:
-        # `_llm.chat_format` is typed as `str | None` in the llama-cpp-python
-        # stubs even though the Llama constructor always sets it to a string.
-        chat_format: str = _llm.chat_format  # type: ignore[assignment]
-        original = (
-            _llm._chat_handlers.get(chat_format)  # type: ignore[attr-defined]
-            or get_chat_completion_handler(chat_format)
-        )
-        _llm.chat_handler = _make_template_handler(
-            original, LLM_CHAT_TEMPLATE_KWARGS
-        )
-
-    return _llm
-
-
-def _sampling_kwargs() -> dict[str, Any]:
-    """Build the dict of sampling parameters that are explicitly set in config."""
-    gen_kwargs: dict[str, Any] = {}
-    if LLM_TEMPERATURE is not None:
-        gen_kwargs["temperature"] = LLM_TEMPERATURE
-    if LLM_TOP_P is not None:
-        gen_kwargs["top_p"] = LLM_TOP_P
-    if LLM_TOP_K is not None:
-        gen_kwargs["top_k"] = LLM_TOP_K
-    if LLM_MIN_P is not None:
-        gen_kwargs["min_p"] = LLM_MIN_P
-    if LLM_PRESENCE_PENALTY is not None:
-        gen_kwargs["presence_penalty"] = LLM_PRESENCE_PENALTY
-    if LLM_REPEAT_PENALTY is not None:
-        gen_kwargs["repeat_penalty"] = LLM_REPEAT_PENALTY
-    return gen_kwargs
-
-
+    
 class _TextToolCallParser:
     """Detect tool calls emitted inline as text by models that don't go through
     llama-cpp-python's structured ``delta.tool_calls`` channel.
@@ -280,145 +187,124 @@ class _TextToolCallParser:
         elif self._buffer:
             yield ("token", self._buffer)
             self._buffer = ""
+            
+_llm_idle = threading.Event(); _llm_idle.set()
+_client: httpx.Client | None = None
 
-
-def chat_stream(
-    messages: list[dict],
-    tools: list[dict[str, Any]] | None = None,
-):
-    """Stream a single LLM chat-completion turn.
-
-    Yields ``("token", str)`` for every text delta the model produces.
-
-    If ``tools`` is provided and the model responds with one or more tool
-    calls, yields a final ``("tool_calls", list[dict])`` event with the
-    accumulated tool-call objects in OpenAI format::
-
-        [{"id": "...", "type": "function",
-          "function": {"name": "...", "arguments": "<json string>"}}]
-
-    Tool calls are recognised from two sources, in this order of priority:
-
-    1. llama-cpp-python's structured ``delta.tool_calls`` channel (used by
-       chat templates with native tool-calling support).
-    2. A text-based fallback that scans the streamed content for inline
-       tool-call delimiters like ``<|tool_call|>call:NAME{ARGS}<tool_call|>``,
-       used by models whose chat template advertises tools but doesn't
-       actually parse the text into structured calls.
-
-    If the model finishes with a normal text response, only ``token``
-    events are yielded.  The caller is responsible for executing any tool
-    calls and feeding the results back in a follow-up turn.
-    """
-    # Wait for any previous LLM call to finish its current token before
-    # we start a new one.  llama-cpp-python's ggml state is not safe
-    # for concurrent inference — two ``create_chat_completion`` calls
-    # in flight at once triggers a ``GGML_ASSERT`` and aborts the
-    # process.  We can't actually cancel the old call (the C-level
-    # ``llama_decode`` is uninterruptible), but the old ``chat_stream``
-    # generator's ``finally`` block will set ``_llm_idle`` as soon as
-    # its current token finishes — so the new caller wakes up the
-    # instant the LLM is actually idle, no fixed sleep needed.
-    #
-    # The 10-second timeout is purely a safety net in case something
-    # goes wrong (e.g. the previous generator never reaches its
-    # ``finally``); if the LLM is taking longer than that to produce a
-    # token, something is already very wrong.
-    if not _llm_idle.wait(timeout=10.0):
-        log.warning(
-            "LLM was still busy after 10s; starting new inference anyway"
+def get_llm() -> httpx.Client:
+    global _client
+    if _client is None:
+        headers = {"Content-Type": "application/json"}
+        if LLAMA_SERVER_API_KEY:
+            headers["Authorization"] = f"Bearer {LLAMA_SERVER_API_KEY}"
+        _client = httpx.Client(
+            base_url=LLAMA_SERVER_URL.rstrip("/"),
+            headers=headers,
+            timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
         )
-    # Mark the LLM as busy BEFORE we touch ``create_chat_completion``,
-    # so any concurrent caller that arrives between the ``wait``
-    # returning and the LLM actually starting will block on the next
-    # ``wait`` instead of racing us into a double call.
+    return _client
+
+def chat_stream(messages, tools=None):
+    if not _llm_idle.wait(timeout=10.0):
+        log.warning("llama-server still busy after 10s")
     _llm_idle.clear()
+    client = get_llm()
 
-    llm = get_llm()
-
-    completion_kwargs: dict[str, Any] = {
-        "messages": messages,  # type: ignore[arg-type]
+    payload: dict[str, Any] = {
+        "model": LLM_MODEL_NAME,
+        "messages": messages,
         "stream": True,
-        **_sampling_kwargs(),
     }
     if tools:
-        completion_kwargs["tools"] = tools
-        completion_kwargs["tool_choice"] = "auto"
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
 
     try:
-        stream = llm.create_chat_completion(**completion_kwargs)
-
-        # Tool-call deltas arrive split across chunks. We merge them by their
-        # `index` field so a multi-tool-call response reassembles correctly.
-        pending_tool_calls: list[dict[str, Any]] = []
-        # Only enable the text-based parser when tools are actually being passed,
-        # so the model isn't punished for talking *about* tools in plain text.
+        pending_tool_calls: list[dict] = []
         text_parser = _TextToolCallParser() if tools else None
+        saw_structured = False
 
-        for chunk in stream:
-            choice = chunk.get("choices", [{}])[0]  # type: ignore[union-attr]
-            delta = choice.get("delta", {}) or {}
+        with client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+            resp.raise_for_status()
+            data_buf = bytearray()
+            done = False
+            for chunk in resp.iter_bytes():
+                if done or not chunk:
+                    continue
+                data_buf.extend(chunk)
+                while True:
+                    sep = data_buf.find(b"\n\n")
+                    if sep == -1:
+                        break
+                    raw_event = bytes(data_buf[:sep])
+                    del data_buf[: sep + 2]
 
-            # --- structured tool-call deltas (preferred path) ---
-            for tc_delta in delta.get("tool_calls") or []:
-                idx = tc_delta.get("index", 0)
-                while len(pending_tool_calls) <= idx:
-                    pending_tool_calls.append(
-                        {
-                            "id": "",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
-                        }
-                    )
-                tc = pending_tool_calls[idx]
-                # Each field of ChatCompletionMessageToolCallChunk is optional, so
-                # re-accessing via [] after a .get() truthiness check trips the
-                # type checker. Bind to a local first.
-                new_id = tc_delta.get("id")
-                if new_id:
-                    tc["id"] = new_id
-                new_type = tc_delta.get("type")
-                if new_type:
-                    tc["type"] = new_type
-                fn_delta = tc_delta.get("function")
-                if fn_delta:
-                    new_name = fn_delta.get("name")
-                    if new_name:
-                        tc["function"]["name"] += new_name
-                    new_args = fn_delta.get("arguments")
-                    if new_args:
-                        tc["function"]["arguments"] += new_args
+                    data_line = None
+                    for line in raw_event.splitlines():
+                        s = line.strip()
+                        if s.startswith(b"data:"):
+                            data_line = s[len(b"data:"):].strip()
+                    if data_line is None:
+                        continue
+                    if data_line == b"[DONE]":
+                        done = True
+                        break
 
-            # --- text content (with inline tool-call fallback) ---
-            content = delta.get("content")
-            if not content:
-                continue
-            if text_parser is None:
-                yield ("token", content)
-                continue
+                    try:
+                        chunk = json.loads(data_line)
+                    except json.JSONDecodeError:
+                        continue
 
-            # Once we've already seen a structured tool call, skip the text parser
-            # so we don't double-detect. The chat template typically strips the
-            # raw tool-call tokens from content in this case, but we belt-and-
-            # brace it.
-            saw_structured = bool(pending_tool_calls)
-            for event in text_parser.feed(content):
-                if event[0] == "token":
-                    yield ("token", event[1])
-                elif event[0] == "tool_call" and not saw_structured:
-                    name, args = event[1]
-                    pending_tool_calls.append(
-                        {
-                            "id": f"call_{uuid.uuid4().hex[:8]}",
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": json.dumps(args, ensure_ascii=False),
-                            },
-                        }
-                    )
+                    choice = (chunk.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
 
-        # Drain any text the model emitted that wasn't part of a tool call.
+                    # --- structured tool-call deltas (preferred path) ---
+                    for tc_delta in delta.get("tool_calls") or []:
+                        idx = tc_delta.get("index", 0)
+                        while len(pending_tool_calls) <= idx:
+                            pending_tool_calls.append({
+                                "id": "", "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            })
+                        tc = pending_tool_calls[idx]
+                        if tc_delta.get("id"):
+                            tc["id"] = tc_delta["id"]
+                        if tc_delta.get("type"):
+                            tc["type"] = tc_delta["type"]
+                        fn_delta = tc_delta.get("function") or {}
+                        if fn_delta.get("name"):
+                            tc["function"]["name"] += fn_delta["name"]
+                        if fn_delta.get("arguments"):
+                            tc["function"]["arguments"] += fn_delta["arguments"]
+                        saw_structured = bool(pending_tool_calls)
+
+                    # --- text content (with text-parser fallback) ---
+                    content = delta.get("content")
+                    if not content:
+                        continue
+                    if text_parser is None:
+                        yield ("token", content)
+                        continue
+                    for event in text_parser.feed(content):
+                        if event[0] == "token":
+                            yield ("token", event[1])
+                        elif event[0] == "tool_call" and not saw_structured:
+                            name, args = event[1]
+                            pending_tool_calls.append({
+                                "id": f"call_{uuid.uuid4().hex[:8]}",
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": json.dumps(
+                                        args, ensure_ascii=False
+                                    ),
+                                },
+                            })
+
+                if done:
+                    break
+
+
         if text_parser is not None:
             for event in text_parser.flush():
                 if event[0] == "token" and event[1]:
@@ -427,24 +313,9 @@ def chat_stream(
         if pending_tool_calls:
             yield ("tool_calls", pending_tool_calls)
     finally:
-        # Mark the LLM as idle.  This fires on every exit path:
-        #   * normal completion (we fell off the end of the for-loop)
-        #   * ``GeneratorExit`` from a client disconnect (the consumer
-        #     in ``routes.py`` stopped iterating us, so the runtime
-        #     raised ``GeneratorExit`` at the most recent ``yield``)
-        #   * any exception inside the loop
-        # In every case the LLM is now safe for the next caller —
-        # whatever token it was computing has either been delivered
-        # (normal) or is being thrown away (GeneratorExit) and the
-        # ggml state is consistent.
         _llm_idle.set()
 
-
-def generate_stream(messages: list[dict]):
-    """Backwards-compatible plain-text stream: yields one text token at a time.
-
-    Equivalent to ``chat_stream(messages)`` with all non-text events dropped.
-    """
+def generate_stream(messages):
     for event in chat_stream(messages):
         if event[0] == "token":
             yield event[1]
