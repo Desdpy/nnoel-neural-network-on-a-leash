@@ -14,6 +14,7 @@ const entry: CoreMenuEntry = {
   id: "settings",
   label: "Settings",
   component: SettingsMenu,
+  icon: "settings",
   position: [0, 3, 0],
   scale: 1.35,
 };

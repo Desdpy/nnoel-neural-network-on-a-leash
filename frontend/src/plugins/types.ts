@@ -16,4 +16,9 @@ export interface PluginUi {
   // Optional React component rendered when the plugin is opened.
   // Keep it lazy / optional so a plugin can ship metadata-only entries.
   component?: ComponentType;
+  // Optional icon shown inside the 3D ball. A bare name (e.g.
+  // ``"clock"``) is looked up as a Lucide icon. A name ending in
+  // ``.png`` / ``.svg`` is loaded from ``/icons/`` (the Vite
+  // ``public/`` directory). ``undefined`` = no icon.
+  icon?: string | null;
 }

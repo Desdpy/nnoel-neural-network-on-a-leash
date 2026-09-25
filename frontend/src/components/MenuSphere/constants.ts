@@ -48,6 +48,29 @@ export const PALETTE: ColorTuple[] = [
 /** The center "menu" ball uses cyan so it reads as the source /
  * hub — same role the radial-gradient bg plays in the canvas. */
 export const CENTER_COLOR = PALETTE[2];
+export const CENTER_RING_BRIGHT = new THREE.Color(CENTER_COLOR.hex).lerp(
+  new THREE.Color(0xffffff),
+  0.18
+);
+export const CENTER_RING_DARK = new THREE.Color(CENTER_COLOR.hex).multiplyScalar(
+  0.55
+);
+
+export function makeDottedRingGeometry(
+  radius: number,
+  segments: number
+): THREE.BufferGeometry {
+  const positions = new Float32Array(segments * 3);
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    positions[i * 3] = Math.cos(angle) * radius;
+    positions[i * 3 + 1] = Math.sin(angle) * radius;
+    positions[i * 3 + 2] = 0;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  return geometry;
+}
 
 // --- Glow texture ---
 

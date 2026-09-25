@@ -20,6 +20,7 @@ export interface CoreMenuEntry {
   label: string;
   // Optional React component rendered when the entry is opened.
   component?: ComponentType;
+  icon?: string | null;
   // Where on the sphere this entry sits. Core entries are pinned
   // (not auto-distributed like plugins) so they're always findable
   // regardless of how the globe is rotated.

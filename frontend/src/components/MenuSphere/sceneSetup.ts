@@ -3,7 +3,16 @@ import {
   CSS2DObject,
   CSS2DRenderer,
 } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { CENTER_COLOR, GLOW_TEXTURE } from "./constants";
+import {
+  CENTER_COLOR,
+  CENTER_RING_BRIGHT,
+  CENTER_RING_DARK,
+  GLOW_TEXTURE,
+  makeDottedRingGeometry,
+} from "./constants";
+import { createFaceLights } from "./faceLights";
+import type { FaceLight } from "./faceLights";
+import { createHologramMaterial } from "./hologramMaterial";
 
 /** A pair of renderers: the WebGL one draws the 3D scene, the
  * CSS2D one paints DOM labels on top and re-projects their 3D
@@ -38,6 +47,37 @@ export function createRenderers(mount: HTMLElement): SceneRenderers {
 
 /** Create the scene + camera + lighting + the world group that
  * every satellite lives under. */
+/** Compute the minimum camera distance so the menu globe (a
+ * sphere of radius ``ORBIT_RADIUS``) fits entirely in view,
+ * regardless of viewport aspect ratio.
+ *
+ * Three.js perspective cameras use a *vertical* FOV. The
+ * horizontal FOV is wider on landscape viewports and narrower on
+ * portrait ones — so on tall phones the horizontal fit is the
+ * binding constraint and we'd otherwise have the leftmost /
+ * rightmost balls clipped off-screen.
+ *
+ * The margin multiplier (1.6) leaves breathing room around the
+ * globe so the orbit feels spacious rather than packed. */
+function fitCameraDistance(
+  viewportWidth: number,
+  viewportHeight: number,
+  fovDegrees: number,
+  orbitRadius: number
+): number {
+  const fovV = (fovDegrees * Math.PI) / 180;
+  const halfTanV = Math.tan(fovV / 2);
+  const aspect = viewportWidth / viewportHeight;
+  // Half-height and half-width of the visible frustum at distance 1.
+  const halfHeight = halfTanV;
+  const halfWidth = halfTanV * aspect;
+  // Distance so the sphere of radius ``orbitRadius`` fits, with
+  // a 1.6x margin (the sphere itself, plus label/halo breathing
+  // room).
+  const margin = 1.6;
+  return orbitRadius * margin / Math.min(halfHeight, halfWidth);
+}
+
 export function createScene(): {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -50,7 +90,13 @@ export function createScene(): {
     0.1,
     100
   );
-  camera.position.set(0, 0, 8);
+  // Pull the camera back along Z so the entire menu globe fits
+  // within both the vertical and horizontal frustum, regardless
+  // of viewport aspect ratio. Without this, portrait viewports
+  // (taller than wide) clip the topmost and bottommost balls.
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  camera.position.set(0, 0, fitCameraDistance(width, height, 45, 2.2));
 
   // Subtle ambient + a key light from the upper-right so balls
   // get a soft 3D feel without looking chrome. The ball
@@ -75,9 +121,20 @@ export function createScene(): {
  * satellites. */
 export function createCenterBall(world: THREE.Group): {
   group: THREE.Group;
+  gridMat: THREE.ShaderMaterial;
+  faceLights: { group: THREE.Group; lights: FaceLight[] };
+  ring: THREE.Points;
+  pulseOrbit: THREE.Group;
+  pulseMat: THREE.SpriteMaterial;
+  orbitA: THREE.Group;
+  orbitB: THREE.Group;
+  orbitMatA: THREE.MeshBasicMaterial;
+  orbitMatB: THREE.MeshBasicMaterial;
   haloMat: THREE.SpriteMaterial;
   pulsePhase: number;
   iconEl: HTMLDivElement;
+  labelEl: HTMLDivElement;
+  labelObj: CSS2DObject;
 } {
   const group = new THREE.Group();
   world.add(group);
@@ -94,16 +151,98 @@ export function createCenterBall(world: THREE.Group): {
   halo.scale.set(2.2, 2.2, 1);
   group.add(halo);
 
-  const shellMat = new THREE.MeshBasicMaterial({
-    color: CENTER_COLOR.hex,
-    transparent: true,
-    opacity: 0.45,
+  const shellMat = createHologramMaterial({
+    color: new THREE.Color(CENTER_COLOR.hex),
+    opacity: 0.08,
+    blending: THREE.NormalBlending,
   });
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(0.42, 48, 48),
     shellMat
   );
   group.add(shell);
+
+  const gridMat = createHologramMaterial({
+    color: new THREE.Color(CENTER_COLOR.hex),
+    opacity: 0.26,
+    wireframe: true,
+  });
+  const grid = new THREE.Mesh(
+    new THREE.SphereGeometry(0.425, 12, 6),
+    gridMat
+  );
+  group.add(grid);
+
+  const faceLights = createFaceLights(grid.geometry, CENTER_RING_BRIGHT, 18);
+  group.add(faceLights.group);
+
+  const ringMat = new THREE.PointsMaterial({
+    color: CENTER_RING_BRIGHT,
+    map: GLOW_TEXTURE,
+    size: 0.1,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    alphaTest: 0.01,
+  });
+  const ring = new THREE.Points(
+    makeDottedRingGeometry(0.48, 72),
+    ringMat
+  );
+  group.add(ring);
+
+  const pulseMat = new THREE.SpriteMaterial({
+    map: GLOW_TEXTURE,
+    color: CENTER_RING_BRIGHT,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const pulseOrbit = new THREE.Group();
+  const pulse = new THREE.Sprite(pulseMat);
+  pulse.position.x = 0.48;
+  pulse.scale.set(0.17, 0.17, 1);
+  pulseOrbit.add(pulse);
+  ring.add(pulseOrbit);
+
+  const orbitMatA = new THREE.MeshBasicMaterial({
+    color: CENTER_RING_BRIGHT,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const orbitA = new THREE.Group();
+  orbitA.add(
+    new THREE.Mesh(
+      new THREE.TorusGeometry(0.6, 0.012, 6, 40, Math.PI * 0.45),
+      orbitMatA
+    )
+  );
+  group.add(orbitA);
+
+  const orbitMatB = new THREE.MeshBasicMaterial({
+    color: CENTER_RING_DARK,
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const orbitB = new THREE.Group();
+  orbitB.add(
+    new THREE.Mesh(
+      new THREE.TorusGeometry(0.52, 0.005, 6, 36, Math.PI * 0.7),
+      orbitMatB
+    )
+  );
+  group.add(orbitB);
 
   const coreMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -114,6 +253,7 @@ export function createCenterBall(world: THREE.Group): {
     new THREE.SphereGeometry(0.18, 32, 32),
     coreMat
   );
+  core.visible = false;
   group.add(core);
 
   // Home icon rendered as an inline SVG inside a DOM element,
@@ -136,16 +276,38 @@ export function createCenterBall(world: THREE.Group): {
   iconObj.position.set(0, 0, 0);
   group.add(iconObj);
 
+  const labelEl = document.createElement("div");
+  labelEl.className = "menu-label";
+  labelEl.textContent = "Home";
+  const labelObj = new CSS2DObject(labelEl);
+  labelObj.center.set(0.5, 0);
+  labelObj.position.set(0, 0, 0);
+  world.add(labelObj);
+
   return {
     group,
+    gridMat,
+    faceLights,
+    ring,
+    pulseOrbit,
+    pulseMat,
+    orbitA,
+    orbitB,
+    orbitMatA,
+    orbitMatB,
     haloMat,
     pulsePhase: Math.random() * Math.PI * 2,
     iconEl,
+    labelEl,
+    labelObj,
   };
 }
 
-/** Resize both renderers + update the camera aspect. Returns a
- * callback suitable for the ``resize`` window event. */
+/** Resize both renderers + update the camera aspect and
+ * distance. Returns a callback suitable for the ``resize``
+ * window event. We re-fit the camera distance on every resize so
+ * the menu globe stays fully visible whether the window becomes
+ * wider (landscape) or taller (portrait). */
 export function makeResizeHandler(
   mount: HTMLElement,
   camera: THREE.PerspectiveCamera,
@@ -155,6 +317,14 @@ export function makeResizeHandler(
     const w = mount.clientWidth;
     const h = mount.clientHeight;
     camera.aspect = w / h;
+    // Re-fit camera distance so the menu globe fits the new
+    // aspect ratio. ``camera.fov`` is in degrees on a
+    // ``PerspectiveCamera``.
+    camera.position.set(
+      0,
+      0,
+      fitCameraDistance(w, h, camera.fov, 2.2)
+    );
     camera.updateProjectionMatrix();
     renderers.webgl.setSize(w, h);
     renderers.labels.setSize(w, h);

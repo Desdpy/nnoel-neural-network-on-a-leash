@@ -19,17 +19,120 @@ export function setupDragToRotate(
   let isDragging = false;
   let lastX = 0;
   let lastY = 0;
+  let lastMoveTime = 0;
+  let pointerSpeed = 0;
+  let inertiaFrame: number | null = null;
+  let velocityStopTimer: number | null = null;
+  let idleFrame: number | null = null;
+  let lastInteractionAt = performance.now();
+  let previousIdleTime = performance.now();
+  const IDLE_DELAY_MS = 10000;
+  const IDLE_SPEED = 0.00008;
 
   // Reusable temporaries so we don't allocate per frame.
   const dragAxis = new THREE.Vector3();
   const dragQuat = new THREE.Quaternion();
   const dragDir = new THREE.Vector3();
   const cameraForward = new THREE.Vector3();
+  const angularVelocity = new THREE.Vector3();
+  const idleAxisY = new THREE.Vector3(0, 1, 0);
+  const idleAxisX = new THREE.Vector3(1, 0, 0);
+  const idleQuatY = new THREE.Quaternion();
+  const idleQuatX = new THREE.Quaternion();
+
+  const stopIdle = () => {
+    if (idleFrame !== null) {
+      window.cancelAnimationFrame(idleFrame);
+      idleFrame = null;
+    }
+  };
+
+  const tickIdle = (now: number) => {
+    const elapsedMs = Math.min(Math.max(now - previousIdleTime, 0), 50);
+    previousIdleTime = now;
+    if (
+      !isDragging &&
+      inertiaFrame === null &&
+      now - lastInteractionAt >= IDLE_DELAY_MS
+    ) {
+      idleQuatY.setFromAxisAngle(idleAxisY, elapsedMs * IDLE_SPEED);
+      idleQuatX.setFromAxisAngle(
+        idleAxisX,
+        elapsedMs * IDLE_SPEED * 0.72
+      );
+      world.quaternion.premultiply(idleQuatY);
+      world.quaternion.premultiply(idleQuatX);
+    }
+    idleFrame = window.requestAnimationFrame(tickIdle);
+  };
+
+  idleFrame = window.requestAnimationFrame(tickIdle);
+
+  const stopInertia = () => {
+    if (inertiaFrame !== null) {
+      window.cancelAnimationFrame(inertiaFrame);
+      inertiaFrame = null;
+    }
+  };
+
+  const clearVelocityStopTimer = () => {
+    if (velocityStopTimer !== null) {
+      window.clearTimeout(velocityStopTimer);
+      velocityStopTimer = null;
+    }
+  };
+
+  const scheduleVelocityStop = () => {
+    clearVelocityStopTimer();
+    velocityStopTimer = window.setTimeout(() => {
+      angularVelocity.set(0, 0, 0);
+      pointerSpeed = 0;
+      velocityStopTimer = null;
+    }, 20);
+  };
+
+  const startInertia = () => {
+    const speed = angularVelocity.length();
+    const releaseAge = performance.now() - lastMoveTime;
+    if (speed < 0.00003 || pointerSpeed < 0.5 || releaseAge > 120) return;
+
+    const limitedSpeed = Math.min(speed, 0.01);
+    angularVelocity.setLength(limitedSpeed);
+    const glideDuration = Math.min(1200, 250 + pointerSpeed * 800);
+    const startedAt = performance.now();
+    let previousTime = startedAt;
+
+    const step = (now: number) => {
+      const elapsedMs = Math.min(Math.max(now - previousTime, 0), 50);
+      previousTime = now;
+      angularVelocity.multiplyScalar(Math.pow(0.9, elapsedMs / 16.667));
+
+      const currentSpeed = angularVelocity.length();
+      if (currentSpeed < 0.00003 || now - startedAt > glideDuration) {
+        angularVelocity.set(0, 0, 0);
+        inertiaFrame = null;
+        return;
+      }
+
+      dragAxis.copy(angularVelocity).normalize();
+      dragQuat.setFromAxisAngle(dragAxis, currentSpeed * elapsedMs);
+      world.quaternion.premultiply(dragQuat);
+      inertiaFrame = window.requestAnimationFrame(step);
+    };
+
+    inertiaFrame = window.requestAnimationFrame(step);
+  };
 
   const onPointerDown = (e: PointerEvent) => {
+    lastInteractionAt = performance.now();
+    stopInertia();
+    clearVelocityStopTimer();
+    angularVelocity.set(0, 0, 0);
+    pointerSpeed = 0;
     isDragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
+    lastMoveTime = performance.now();
     (e.target as Element).setPointerCapture?.(e.pointerId);
   };
 
@@ -53,16 +156,33 @@ export function setupDragToRotate(
     camera.getWorldDirection(cameraForward);
     dragAxis.copy(dragDir).cross(cameraForward).normalize();
 
-    const angle = dragDir.length() * 0.008;
+    const dragLength = dragDir.length();
+    const angle = dragLength * 0.008;
     dragQuat.setFromAxisAngle(dragAxis, angle);
     // Apply in world space so it feels like grabbing the globe
     // itself (rather than the globe's local axes).
     world.quaternion.premultiply(dragQuat);
+
+    const now = performance.now();
+    const elapsed = Math.min(Math.max(now - lastMoveTime, 1), 100);
+    const currentPointerSpeed = dragLength / elapsed;
+    pointerSpeed = pointerSpeed * 0.4 + currentPointerSpeed * 0.6;
+    const angularSpeed = angle / elapsed;
+    angularVelocity.set(
+      angularVelocity.x * 0.4 + dragAxis.x * angularSpeed * 0.6,
+      angularVelocity.y * 0.4 + dragAxis.y * angularSpeed * 0.6,
+      angularVelocity.z * 0.4 + dragAxis.z * angularSpeed * 0.6
+    );
+    lastMoveTime = now;
+    scheduleVelocityStop();
   };
 
   const onPointerUp = (e: PointerEvent) => {
+    lastInteractionAt = performance.now();
     isDragging = false;
     (e.target as Element).releasePointerCapture?.(e.pointerId);
+    startInertia();
+    clearVelocityStopTimer();
   };
 
   // Allow drag on touch devices.
@@ -73,6 +193,9 @@ export function setupDragToRotate(
   dom.addEventListener("pointercancel", onPointerUp);
 
   return () => {
+    stopIdle();
+    stopInertia();
+    clearVelocityStopTimer();
     dom.removeEventListener("pointerdown", onPointerDown);
     dom.removeEventListener("pointermove", onPointerMove);
     dom.removeEventListener("pointerup", onPointerUp);
@@ -174,6 +297,7 @@ export function setupHoverDetection(
       // Toggle a CSS class so the label can restyle via CSS
       // rather than being mutated imperatively per frame.
       s.labelEl.classList.toggle("menu-label--hovered", s.hovered);
+      s.iconEl?.classList.toggle("menu-satellite-icon--hovered", s.hovered);
     }
     // Cursor styling: pointer over a hit, grabbing while a
     // drag is active, grab otherwise. The "is dragging" state

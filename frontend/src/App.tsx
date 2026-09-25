@@ -1,5 +1,6 @@
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 import { MenuSphere } from "./components/MenuSphere";
+import { Chat } from "./components/Chat";
 import "./App.css";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           background (now dimmed by the tint) shows through
           between the balls. */}
       <MenuSphere />
+      <Chat />
     </>
   );
 }

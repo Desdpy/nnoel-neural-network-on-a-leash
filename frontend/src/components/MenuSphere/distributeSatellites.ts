@@ -11,6 +11,8 @@ export interface SatelliteSource {
   label: string;
   position?: [number, number, number];
   scale?: number;
+  /** Optional icon for the ball. See ``satelliteIcons.ts``. */
+  icon?: string | null;
 }
 
 /** Distribute plugins + core entries on a single Fibonacci
@@ -28,6 +30,18 @@ export interface WebsiteSource {
   id: string;
   label: string;
   url: string;
+  /**
+   * When ``true``, clicking the satellite opens the URL in a real
+   * browser tab via ``window.open``. When ``false`` (or omitted),
+   * the URL is embedded in the menu panel as a sandboxed iframe.
+   */
+  new_tab?: boolean;
+  /**
+   * Icon name. A bare name (e.g. ``"github"``) is looked up as
+   * a Lucide icon. A name ending in ``.png`` or ``.svg`` is
+   * served from ``/icons/``. ``undefined`` = no icon.
+   */
+  icon?: string | null;
 }
 
 export function distributeSatellites(
@@ -63,6 +77,7 @@ export function distributeSatellites(
       color: coreColor,
       position: latticePositions[bestIdx],
       scale: entry.scale ?? 1,
+      icon: entry.icon ?? null,
     });
   }
 
@@ -77,6 +92,7 @@ export function distributeSatellites(
       color: PALETTE[i % PALETTE.length],
       position: latticePositions[slot],
       scale: 1,
+      icon: ui.icon ?? null,
     });
   });
 
@@ -96,6 +112,8 @@ export function distributeSatellites(
       position: latticePositions[slot],
       scale: 1,
       url: site.url,
+      new_tab: site.new_tab,
+      icon: site.icon,
     });
   });
 

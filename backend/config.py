@@ -113,6 +113,26 @@ WEBSITES: list[dict] = [
         "id": str(entry["id"]),
         "label": str(entry.get("label", entry["id"])),
         "url": str(entry["url"]),
+        # ``new_tab`` controls how clicking the satellite opens
+        # the site. ``false`` (default) embeds it in the menu
+        # panel; ``true`` opens it in a real browser tab via
+        # ``window.open`` and leaves the panel closed. Use
+        # ``true`` for sites that refuse to be iframed
+        # (X-Frame-Options, restrictive CSP, runtime crashes) or
+        # that need full browser features (popups, downloads).
+        "new_tab": bool(entry.get("new_tab", False)),
+        # ``icon`` is the satellite icon. Two shapes are accepted:
+        # - A bare name (e.g. ``"github"``) resolves to a Lucide
+        #   icon component (see ``frontend/src/lib/satelliteIcons.ts``
+        #   for the lookup table).
+        # - A filename ending in ``.png`` / ``.svg`` is served
+        #   from ``/icons/`` (the ``public/`` directory of the
+        #   frontend bundle). E.g. ``"github.png"`` renders
+        #   ``<img src="/icons/github.png">``.
+        # ``None`` (the default) means no icon is shown.
+        "icon": (
+            str(entry["icon"]) if entry.get("icon") is not None else None
+        ),
     }
     for entry in config.get("websites", {}).get("entries", [])
 ]

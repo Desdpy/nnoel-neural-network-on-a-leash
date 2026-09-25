@@ -156,8 +156,8 @@ export function NeuralNetworkBackground() {
       }
     }
 
-    // Target ~12 fps for the canvas animation
-    const FRAME_INTERVAL = 1000 / 12;
+    // Target ~24 fps for the canvas animation
+    const FRAME_INTERVAL = 1000 / 24;
     let lastFrameTime = 0;
 
     // Main animation loop

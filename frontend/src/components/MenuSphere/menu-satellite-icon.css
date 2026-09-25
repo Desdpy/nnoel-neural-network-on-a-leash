@@ -1,0 +1,54 @@
+/* Icon rendered inside a satellite ball. Anchored at the
+   ball's centre via CSS2DObject, this element renders either
+   a Lucide SVG or a ``<img>`` depending on the icon name
+   format. CSS2DRenderer writes the positioning transform each
+   frame. ``pointer-events: none`` so it never interferes with
+   raycasting. ``user-select: none`` so the underlying text
+   can't accidentally get selected. */
+.menu-satellite-icon {
+    box-sizing: border-box;
+    width: 48px;
+    height: 48px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(13, 17, 23, 0.55);
+    border: 1px solid rgba(230, 237, 243, 0.12);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    color: #ffffff;
+    pointer-events: none;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.95;
+    transition: width 0.12s ease, height 0.12s ease, padding 0.12s ease;
+}
+
+.menu-satellite-icon--hovered {
+    width: 56px;
+    height: 56px;
+    padding: 3px 9px;
+    background: rgba(13, 17, 23, 0.75);
+    border-color: rgba(230, 237, 243, 0.3);
+}
+
+/* Lucide SVG inside the icon container. ``currentColor`` lets
+   the colour be themed via the ``.menu-satellite-icon``
+   element's ``color`` property. ``width: 100%`` makes the SVG
+   fill its parent so resizing the container resizes the icon. */
+.menu-satellite-icon svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+/* PNG / SVG image inside the icon container. ``object-fit:
+   contain`` keeps the aspect ratio while filling the box; ``filter:
+   drop-shadow`` adds a faint glow so the image pops against
+   the bright cyan core. */
+.menu-satellite-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}

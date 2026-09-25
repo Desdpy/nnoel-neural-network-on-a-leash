@@ -72,11 +72,33 @@ name = "Nnoel"
 system_prompt = """ """
 
 # Websites that should appear as a satellite in the menu. Each
-# entry becomes a clickable ball; clicking opens the URL in an
-# embedded iframe in the panel. To add your own, copy this file to
-# ``config.local.toml`` and uncomment / extend ``[websites.entries]``.
+# entry becomes a clickable ball; clicking opens the URL. To add
+# your own, copy this file to ``config.local.toml`` and uncomment
+# / extend ``[websites.entries]``.
+#
+# Per-entry fields:
+#   id       — required, unique satellite id
+#   label    — optional display label (defaults to ``id``)
+#   url      — required, the website URL
+#   new_tab  — optional bool, default ``false``. When ``true``,
+#              clicking the satellite opens the URL in a real
+#              browser tab via ``window.open`` and leaves the
+#              menu panel closed. When ``false`` (or omitted),
+#              the URL is embedded in the menu panel as an iframe.
+#              Use ``new_tab = true`` for sites that refuse to be
+#              iframed (X-Frame-Options, restrictive CSP, runtime
+#              crashes) or that need full browser features.
+#   icon     — optional icon shown inside the ball. A bare name
+#              (``"home"``, ``"clock"``, ``"globe"``, …) is looked
+#              up in the Lucide icon table. A name ending in
+#              ``.png`` or ``.svg`` is served from ``/icons/``
+#              (the Vite ``public/`` directory). Omit for the
+#              default coloured-sphere look. See
+#              ``frontend/src/lib/satelliteIcons.ts`` for the
+#              curated list of available Lucide icons.
 [websites]
 # [[websites.entries]]
 # id = "github"
 # label = "GitHub"
 # url = "https://github.com"
+# icon = "github"
