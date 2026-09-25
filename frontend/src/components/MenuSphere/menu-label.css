@@ -1,0 +1,35 @@
+/* Labels rendered by MenuSphere's CSS2DRenderer. Each satellite
+   gets a ``<div class="menu-label">`` positioned at the
+   satellite's world coordinates, with an upward offset so it
+   floats above the ball. ``pointer-events: none`` lets the
+   cursor pass through to the WebGL canvas underneath, so dragging
+   to rotate the globe still works when the cursor is over a
+   label. */
+.menu-label {
+    color: #e6edf3;
+    font-family: "Geist Variable", system-ui, sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(13, 17, 23, 0.55);
+    border: 1px solid rgba(230, 237, 243, 0.12);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    pointer-events: none;
+    transform: translateY(-100%);
+    white-space: nowrap;
+    /* Only fade opacity on hover, not the transform: CSS2DRenderer
+       sets ``element.style.transform`` every frame to position
+       the label, so a CSS transition on transform would smooth
+       out the position update and make the label visibly lag
+       behind the ball. */
+    transition: opacity 0.15s ease;
+    opacity: 0.85;
+}
+.menu-label--hovered {
+    opacity: 1;
+    background: rgba(13, 17, 23, 0.75);
+    border-color: rgba(230, 237, 243, 0.3);
+}

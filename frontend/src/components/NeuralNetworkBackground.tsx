@@ -89,7 +89,7 @@ export function NeuralNetworkBackground() {
     function resize() {
       const parent = canvas!.parentElement;
       if (!parent) return;
-      w = canvas!.width = window.innerWidth - 36;
+      w = canvas!.width = window.innerWidth;
       h = canvas!.height = parent.clientHeight;
       cx = w / 2;
       cy = h / 2;
@@ -376,8 +376,7 @@ export function NeuralNetworkBackground() {
   return (
     <canvas
       ref={canvasRef}
-      className="absolute top-0 right-0"
-      style={{ zIndex: -1 }}
+      style={{ position: "fixed", inset: 0, width: "100%", height: "100%" }}
     />
   );
 }

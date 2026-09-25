@@ -6,10 +6,9 @@ import queue
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
-import plugins as tools  # the aggregated plugin registry (TOOLS, HANDLERS, execute, routers, ...)
 from config import (
     AGENT_NAME,
     AGENT_SYSTEM_PROMPT,
@@ -18,14 +17,24 @@ from config import (
     TTS_MAX_CHARS,
     TTS_MIN_CHARS,
     TTS_WORKERS,
+    WEBSITES,
 )
-from fastapi import APIRouter, Body, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Body,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import StreamingResponse
 from llama import chat_stream, get_llm
 from log import get_logger
 from stt import _event_to_wire_dict, get_stt, stt_disabled
 from text_chunker import TextChunker
 from tts import get_tts, tts_disabled
+
+import plugins as tools  # the aggregated plugin registry (TOOLS, HANDLERS, execute, routers, ...)
 
 log = get_logger("routes")
 
@@ -58,9 +67,7 @@ def _get_db() -> sqlite3.Connection:
     # Migrate older DBs that don't have the ``meta`` column. ALTER TABLE
     # ADD COLUMN fails if the column already exists, so swallow that case.
     try:
-        conn.execute(
-            "ALTER TABLE messages ADD COLUMN meta TEXT DEFAULT '{}'"
-        )
+        conn.execute("ALTER TABLE messages ADD COLUMN meta TEXT DEFAULT '{}'")
     except sqlite3.OperationalError as err:
         # Column already exists — expected on every run after the first.
         log.debug("meta column already present: %s", err)
@@ -126,6 +133,7 @@ def _float_to_int16_le(samples: np.ndarray) -> bytes:
 
 # --- API Endpoints ---
 
+
 @router.get("/config")
 def get_config():
     """Return agent display-name, registered tool list, and STT availability.
@@ -140,6 +148,7 @@ def get_config():
         "tools": [t["function"]["name"] for t in tools.TOOLS],
         "stt_enabled": STT_ENABLED,
         "plugins": tools.frontend_manifests,
+        "websites": WEBSITES,
     }
 
 
@@ -149,9 +158,17 @@ def ping():
     try:
         get_llm()
         return {"status": "ok", "llama": True}
-    except Exception as err:
+    except (RuntimeError, OSError, ValueError) as err:
+        # llama-cpp-python raises RuntimeError / ValueError when
+        # the model file is missing or invalid; OSError covers
+        # filesystem-level load failures. Any other exception
+        # (AttributeError, TypeError, etc.) is a bug and should
+        # propagate so we don't silently mark the service as
+        # healthy when something else broke.
         log.warning("LLM not ready for /ping: %s", err)
-        raise HTTPException(status_code=503, detail={"status": "error", "llama": False})
+        raise HTTPException(
+            status_code=503, detail={"status": "error", "llama": False}
+        ) from err
 
 
 def _build_system_message(rag_context: str | None = None) -> str:
@@ -191,7 +208,7 @@ def _build_system_message(rag_context: str | None = None) -> str:
 
 
 @router.post("/chat")
-def chat(message: str = Body(..., embed=True)):
+def chat(message: Annotated[str, Body(embed=True)]):
     """
     Stream a LLM response for the given user message.
 
@@ -259,9 +276,13 @@ def chat(message: str = Body(..., embed=True)):
                 try:
                     result = tts.synthesize(text)
                 except Exception as err:  # noqa: BLE001
-                    log.warning(
-                        "TTS synth failed for chunk %r: %s", text[:60], err
-                    )
+                    # TTS failures shouldn't kill the audio thread
+                    # or interrupt the rest of the reply; we log
+                    # and skip this chunk. The broad ``Exception``
+                    # catch is intentional because sherpa-onnx and
+                    # the underlying audio stack can raise a variety
+                    # of error types depending on the input.
+                    log.warning("TTS synth failed for chunk %r: %s", text[:60], err)
                     return
                 if result is not None and not shutdown.is_set():
                     audio_q.put(result)
@@ -427,10 +448,21 @@ def chat(message: str = Body(..., embed=True)):
 
                         try:
                             result = tools.execute(name, args)
-                        except Exception as err:
-                            # Don't let a buggy tool kill the whole stream.
-                            # Surface the error as a tool_result so the LLM
-                            # can react to it instead of looping forever.
+                        except (
+                            RuntimeError,
+                            ValueError,
+                            TypeError,
+                            KeyError,
+                            OSError,
+                        ) as err:
+                            # A tool failed during streaming. We catch
+                            # the exception types that ``tools.execute``
+                            # is contractually allowed to raise (bad args,
+                            # backend I/O errors, etc.) and surface them
+                            # as a ``tool_result`` so the LLM can react.
+                            # Anything else (AttributeError, ImportError,
+                            # …) is a bug and should propagate so we
+                            # notice it instead of silently looping.
                             log.exception("Tool %r raised; emitting error result", name)
                             yield _ndjson(
                                 {
@@ -444,7 +476,11 @@ def chat(message: str = Body(..., embed=True)):
                             _append_message(
                                 "tool_result",
                                 f"Tool error: {err}",
-                                {"name": name, "tool_call_id": tool_call_id, "extra": {}},
+                                {
+                                    "name": name,
+                                    "tool_call_id": tool_call_id,
+                                    "extra": {},
+                                },
                             )
                             llm_messages.append(
                                 {
@@ -513,21 +549,26 @@ def chat(message: str = Body(..., embed=True)):
             yield _ndjson({"type": "done"})
 
         return StreamingResponse(event_stream(), media_type="application/x-ndjson")
-    except Exception as err:
+    except (RuntimeError, OSError, ValueError) as err:
+        # Catching the failure modes we expect from the LLM layer
+        # (model not loaded, network error to llama-server, etc.)
+        # and returning a 502 with a friendly message. Anything
+        # else (TypeError, KeyError, …) is a programming error and
+        # should propagate to FastAPI's default 500 path so we get
+        # the usual stack trace in the logs.
         log.exception("Failed to start chat stream")
         raise HTTPException(
             status_code=502,
             detail=(
-                "Failed to start chat stream. " 
-                "The language model may not be loaded yet."
+                "Failed to start chat stream. The language model may not be loaded yet."
             ),
         ) from err
 
 
 @router.get("/api/chat")
 def get_chat(
-    before: int | None = Query(default=None, ge=1),
-    limit: int = Query(default=10, ge=1, le=200),
+    before: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 10,
 ):
     """Load a page of saved messages in chronological order.
 
@@ -573,7 +614,10 @@ def get_chat(
 
 
 @router.post("/tools/{name}")
-def run_tool(name: str, arguments: dict[str, Any] = Body(default={})):
+def run_tool(
+    name: str,
+    arguments: Annotated[dict[str, Any] | None, Body(embed=True)] = None,
+):
     """Run a registered tool by name with the given arguments and return its result.
 
     Exposes the same tool registry the LLM uses, so the UI can let users
@@ -581,12 +625,16 @@ def run_tool(name: str, arguments: dict[str, Any] = Body(default={})):
     return a dict with a ``text`` field are unwrapped to that text and
     the extra keys are surfaced under ``extra`` so the UI can keep the
     seconds ticking locally without re-fetching.
+
+    Wire format: ``POST /tools/{name}`` with body
+    ``{"arguments": {...}}``. ``arguments`` is optional — omitting it
+    (or sending ``null``) is equivalent to passing ``{}``.
     """
-    try:
-        result = tools.execute(name, arguments or {})
-    except Exception:
-        log.exception("Direct tool invocation failed: name=%r", name)
-        raise
+    # Let tool exceptions propagate — FastAPI's default exception
+    # handler will turn them into a 500 with the usual traceback
+    # logged. Callers (the dock UI) can inspect the ``detail`` for
+    # debugging.
+    result = tools.execute(name, arguments or {})
     if isinstance(result, dict) and "text" in result:
         text: Any = result["text"]
         extra = {k: v for k, v in result.items() if k != "text"}
@@ -671,8 +719,13 @@ async def stt_websocket(websocket: WebSocket) -> None:
         """
         try:
             await websocket.send_json(_event_to_wire_dict(event))
-        except Exception as err:  # noqa: BLE001
-            # Client likely closed; nothing useful we can do here.
+        except (WebSocketDisconnect, RuntimeError) as err:
+            # ``WebSocketDisconnect`` is raised by Starlette when
+            # the client has closed the connection. ``RuntimeError``
+            # is raised when we try to ``send`` on an already-closed
+            # socket. Both mean "client went away" — nothing useful
+            # to do, just log at debug level so we don't spam the
+            # warning stream during normal session teardown.
             log.debug("Failed to send STT event %r: %s", event.type, err)
 
     try:
@@ -687,9 +740,7 @@ async def stt_websocket(websocket: WebSocket) -> None:
                 # VAD + Parakeet transcription are CPU-bound; run
                 # them in the thread pool so the event loop stays
                 # responsive to additional binary frames.
-                events = await loop.run_in_executor(
-                    executor, session.feed_audio, chunk
-                )
+                events = await loop.run_in_executor(executor, session.feed_audio, chunk)
                 for event in events:
                     await _send_event(event)
             elif "text" in message and message["text"] == "stop":
@@ -698,14 +749,21 @@ async def stt_websocket(websocket: WebSocket) -> None:
                 break
     except WebSocketDisconnect:
         pass
-    except Exception as err:  # noqa: BLE001
+    except (OSError, RuntimeError) as err:
+        # ``OSError`` covers socket-level failures (client
+        # disconnected mid-frame, network drop, …); ``RuntimeError``
+        # covers things like the underlying ONNX session being
+        # killed mid-stream. We log and try to notify the client
+        # before tearing down. Any other exception type (TypeError,
+        # KeyError, ValueError, …) is a programming error and
+        # should propagate so we notice it.
         log.exception("STT WebSocket session crashed")
         try:
-            await websocket.send_json(
-                {"type": "error", "text": f"STT error: {err}"}
-            )
+            await websocket.send_json({"type": "error", "text": f"STT error: {err}"})
             await websocket.close(code=1011, reason=f"STT error: {err}")
-        except Exception:  # noqa: BLE001
+        except (WebSocketDisconnect, RuntimeError, OSError):
+            # Client is gone or socket is already closed; nothing
+            # to do.
             pass
         executor.shutdown(wait=False, cancel_futures=True)
         return
@@ -717,10 +775,10 @@ async def stt_websocket(websocket: WebSocket) -> None:
             events = await loop.run_in_executor(executor, session.flush)
             for event in events:
                 await _send_event(event)
-        except Exception as err:  # noqa: BLE001
+        except (OSError, RuntimeError) as err:
             log.debug("STT flush on close failed: %s", err)
         try:
             await websocket.close()
-        except Exception:  # noqa: BLE001
+        except (WebSocketDisconnect, RuntimeError, OSError):
             pass
         executor.shutdown(wait=False, cancel_futures=True)

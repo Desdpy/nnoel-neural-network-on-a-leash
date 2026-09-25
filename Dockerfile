@@ -49,6 +49,10 @@ COPY --from=frontend-builder /build/frontend/node_modules frontend/node_modules/
 # + empty ``user_plugins/`` was removed; the registry now scans the
 # unified ``plugins/`` dir).
 COPY backend/ backend/
+# Default config baked into the image at the project root. In the
+# dev compose setup, ``./config.toml`` is bind-mounted on top of
+# this so user edits in the host tree take effect without a rebuild.
+COPY config.toml config.toml
 COPY --from=frontend-builder /build/frontend/dist frontend/dist/
 
 # Install Python dependencies.

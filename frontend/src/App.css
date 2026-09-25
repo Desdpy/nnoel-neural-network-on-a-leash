@@ -1,0 +1,14 @@
+/* Dark tint overlay that sits between the neural-network
+   background and the menu. ``position: fixed`` covers the
+   viewport without affecting layout; ``pointer-events: none``
+   lets drag/click pass through to the menu underneath; the
+   black-with-alpha colour darkens whatever's behind it.
+   ``z-index: 1`` keeps it below MenuSphere's z-index: 2 mount,
+   so the menu balls and labels render on top of the tint. */
+.bg-tint {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    z-index: 1;
+}

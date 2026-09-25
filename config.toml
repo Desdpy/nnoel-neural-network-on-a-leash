@@ -1,0 +1,82 @@
+# Nnoel server configuration — DEFAULT settings shipped with the repo.
+#
+# To customize, copy this file to ``config.local.toml`` and edit the
+# copy. ``config.local.toml`` is read in preference to this file and is
+# git-ignored, so your personal settings won't be committed.
+#
+# In the Docker dev setup, the bind mount
+# ``./config.local.toml:/app/config.local.toml`` is what actually runs
+# the server. If the file doesn't exist on the host, the container
+# falls back to this default.
+
+[server]
+# Network interface and port the FastAPI server binds to
+host = "0.0.0.0"
+port = 5000
+
+[llama]
+url = "http://localhost:11434"
+api_key = ""
+model_name = "default"
+
+# Speech-to-text (Parakeet TDT 0.6B v3 int8 via sherpa-onnx).
+# Set ``enabled = false`` to disable STT entirely (the mic button
+# is hidden in the UI). Requires the Silero VAD model file and
+# the Parakeet ONNX model directory under ``model_dir``.
+[stt]
+enabled = true
+# Model type: "parakeet" (sherpa-onnx's NeMo Parakeet TDT 0.6B v3 int8).
+model_type = "parakeet"
+# Path to the STT model directory (relative to project root or absolute).
+model_dir = "models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+# Path to the Silero VAD model file (relative to project root or absolute).
+vad_model = "models/stt/silero_vad.onnx"
+# Default language label.  Falls back to this when [lid] is disabled
+# or can't classify the utterance. See comments in config.local.toml
+# for the full list of Parakeet's 25 supported languages.
+language = "en"
+# --- VAD parameters ---
+vad_threshold = 0.5
+vad_min_silence_duration = 0.8
+vad_min_speech_duration = 0.4
+vad_max_speech_duration = 30.0
+
+# Spoken-language identification (Whisper-tiny int8 via sherpa-onnx).
+# Auto-detects the language of each transcribed utterance. Disabled
+# automatically if the model files are missing.
+[lid]
+enabled = true
+num_threads = 1
+model_dir = "models/lid/sherpa-onnx-whisper-tiny"
+
+# Text-to-speech (Piper via sherpa-onnx).
+# Set ``enabled = false`` to skip TTS entirely.
+[tts]
+enabled = true
+num_threads = 2
+workers = 1
+speed = 1.2
+pitch = 2.0
+model_dir = "models/tts/vits-piper-en_US-amy-medium"
+# --- Streaming chunking ---
+min_chars = 12
+max_chars = 140
+adaptive_first_chunk_words = 1
+
+[agent]
+name = "Nnoel"
+# The system prompt is intentionally short in the default config —
+# copy this file to ``config.local.toml`` and add your persona,
+# rules, and few-shot examples there. See config.local.toml for a
+# complete starter prompt you can iterate from.
+system_prompt = """ """
+
+# Websites that should appear as a satellite in the menu. Each
+# entry becomes a clickable ball; clicking opens the URL in an
+# embedded iframe in the panel. To add your own, copy this file to
+# ``config.local.toml`` and uncomment / extend ``[websites.entries]``.
+[websites]
+# [[websites.entries]]
+# id = "github"
+# label = "GitHub"
+# url = "https://github.com"

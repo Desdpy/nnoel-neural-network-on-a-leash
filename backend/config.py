@@ -3,8 +3,15 @@ from pathlib import Path
 
 import tomllib
 
-# Path to the user-editable TOML configuration file
-CONFIG_PATH = Path(__file__).parent / "config.toml"
+# Path to the user-editable TOML configuration file. We prefer
+# ``config.local.toml`` (gitignored personal settings) and fall
+# back to the tracked ``config.toml`` defaults if the local file
+# doesn't exist. Both files live at the project root so they're
+# usable outside of the backend (tooling, container bind mounts).
+_PROJECT_ROOT = Path(__file__).parent.parent
+_LOCAL_CONFIG = _PROJECT_ROOT / "config.local.toml"
+_DEFAULT_CONFIG = _PROJECT_ROOT / "config.toml"
+CONFIG_PATH = _LOCAL_CONFIG if _LOCAL_CONFIG.exists() else _DEFAULT_CONFIG
 
 # Load the entire config file into a dictionary
 with open(CONFIG_PATH, "rb") as f:
@@ -94,3 +101,18 @@ LID_MODEL_DIR = str(
     if Path(_raw_lid_model_dir).is_absolute()
     else BASE_DIR / _raw_lid_model_dir
 )
+
+# --- Menu websites ---
+# Each entry under ``[websites.entries]`` becomes a satellite in
+# the menu. Clicking opens the URL in an embedded iframe. ``id``
+# must be unique across plugins, cores, and other websites;
+# ``label`` is the text shown on the floating label; ``url`` is
+# loaded into the iframe when the satellite is clicked.
+WEBSITES: list[dict] = [
+    {
+        "id": str(entry["id"]),
+        "label": str(entry.get("label", entry["id"])),
+        "url": str(entry["url"]),
+    }
+    for entry in config.get("websites", {}).get("entries", [])
+]

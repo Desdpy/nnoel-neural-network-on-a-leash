@@ -11,6 +11,13 @@ services:
       - models_data:/app/models        # Persist downloaded models
       - ./data:/app/data               # Persist chat history (SQLite)
       - ./plugins:/app/plugins         # Co-located user plugins (backend + frontend halves)
+      # ``./config.local.toml`` is optional. The directory mount
+      # always succeeds even when the file doesn't exist on the
+      # host; the entrypoint then copies the default config in place
+      # if no ``config.local.toml`` is present in the bind-mounted
+      # directory. To customise, create ``./config.local.toml`` at
+      # the repo root and restart the container.
+      - ./config.d:/app/config.d:ro
     restart: unless-stopped
 
 volumes:

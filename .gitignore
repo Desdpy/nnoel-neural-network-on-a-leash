@@ -46,3 +46,8 @@ data/
 
 # Plugins directory
 plugins/
+
+# Personal server config (overrides the tracked ``config.toml``
+# defaults). Copy that file to ``config.local.toml`` and edit the
+# copy to customise without committing personal data.
+config.local.toml

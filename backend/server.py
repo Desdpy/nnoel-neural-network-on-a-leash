@@ -6,18 +6,18 @@ Nnoel — Local AI assistant with in-process LLM and TTS.
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from config import HOST, PORT
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from log import get_logger
+from routes import router
+
 # Import the plugin registry FIRST so its aggregated surface
 # (``TOOLS``, ``HANDLERS``, ``execute``, ``routers``, ...) is ready
 # when the rest of the backend (and ``routes.py``'s ``import plugins
 # as tools``) needs it. Plugins live as subpackages of ``backend/plugins/``
 # and are discovered at import time.
-import plugins  # noqa: E402
-
-from config import HOST, PORT  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
-from log import get_logger  # noqa: E402
-from routes import router  # noqa: E402
+import plugins
 
 log = get_logger("server")
 
@@ -47,8 +47,8 @@ async def lifespan(app: FastAPI):
                 log.info("TTS engine ready.")
             else:
                 log.warning("TTS engine failed to load; check model files.")
-        except Exception as err:  # noqa: BLE001
-            log.exception("TTS pre-warm failed: %s", err)
+        except Exception:
+            log.exception("TTS pre-warm failed")
 
     if stt_disabled():
         log.info("STT disabled in config; skipping pre-warm.")
@@ -62,8 +62,8 @@ async def lifespan(app: FastAPI):
                     "STT engine failed to load; check model files in "
                     "models/stt/. Mic button will not work until this is fixed."
                 )
-        except Exception as err:  # noqa: BLE001
-            log.exception("STT pre-warm failed: %s", err)
+        except Exception:
+            log.exception("STT pre-warm failed")
 
     yield
 
