@@ -47,7 +47,7 @@ data/
 # Plugins directory
 plugins/
 
-# Personal server config (overrides the tracked ``config.toml``
-# defaults). Copy that file to ``config.local.toml`` and edit the
-# copy to customise without committing personal data.
-config.local.toml
+# Personal server config. The app reads a single ``config.toml`` at the
+# project root; this file is no longer loaded by anything and is kept
+# only as a personal reference copy, so it stays untracked.
+config.toml
