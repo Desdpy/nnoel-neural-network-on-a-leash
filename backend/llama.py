@@ -2,14 +2,14 @@ import json
 import re
 import threading
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
-
-from config import LLAMA_SERVER_API_KEY, LLM_MODEL_NAME, LLAMA_SERVER_URL
+from config import LLAMA_SERVER_API_KEY, LLAMA_SERVER_URL, LLM_MODEL_NAME
 from log import get_logger
 
 log = get_logger("llama")
+
 
 def _gemma_args_to_json(s: str) -> str:
     """Normalise Gemma's tool-call arg syntax to standard JSON.
@@ -27,7 +27,8 @@ def _gemma_args_to_json(s: str) -> str:
     # inside an already-quoted string value can't be mistaken for a key.
     s = re.sub(r"([{,]\s*)([A-Za-z_]\w*)(\s*:)", r'\1"\2"\3', s)
     return s
-    
+
+
 class _TextToolCallParser:
     """Detect tool calls emitted inline as text by models that don't go through
     llama-cpp-python's structured ``delta.tool_calls`` channel.
@@ -48,7 +49,12 @@ class _TextToolCallParser:
 
     # (open_delim, close_delim, body_regex)
     # Body regex must capture (1) the function name and (2) the JSON args.
-    PATTERNS: list[tuple[str, str, "re.Pattern[str]"]] = [
+    # ClassVar: this is an immutable lookup table shared by every
+    # instance, never rebound or mutated per-instance — annotating it
+    # says so explicitly and keeps type checkers from flagging the list
+    # default (or, worse, suggesting it move into ``__init__``, which
+    # would rebuild the compiled regexes for every parser instance).
+    PATTERNS: ClassVar[list[tuple[str, str, "re.Pattern[str]"]]] = [
         # Gemma 4 (this fine-tune, unsloth's quant): the open and close are
         # shorter than the spec — one fewer `|` on each side:
         #   <|tool_call>call:NAME{ARGS}<tool_call|>
@@ -187,9 +193,12 @@ class _TextToolCallParser:
         elif self._buffer:
             yield ("token", self._buffer)
             self._buffer = ""
-            
-_llm_idle = threading.Event(); _llm_idle.set()
+
+
+_llm_idle = threading.Event()
+_llm_idle.set()
 _client: httpx.Client | None = None
+
 
 def get_llm() -> httpx.Client:
     global _client
@@ -203,6 +212,7 @@ def get_llm() -> httpx.Client:
             timeout=httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0),
         )
     return _client
+
 
 def chat_stream(messages, tools=None):
     if not _llm_idle.wait(timeout=10.0):
@@ -243,7 +253,7 @@ def chat_stream(messages, tools=None):
                     for line in raw_event.splitlines():
                         s = line.strip()
                         if s.startswith(b"data:"):
-                            data_line = s[len(b"data:"):].strip()
+                            data_line = s[len(b"data:") :].strip()
                     if data_line is None:
                         continue
                     if data_line == b"[DONE]":
@@ -262,10 +272,13 @@ def chat_stream(messages, tools=None):
                     for tc_delta in delta.get("tool_calls") or []:
                         idx = tc_delta.get("index", 0)
                         while len(pending_tool_calls) <= idx:
-                            pending_tool_calls.append({
-                                "id": "", "type": "function",
-                                "function": {"name": "", "arguments": ""},
-                            })
+                            pending_tool_calls.append(
+                                {
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            )
                         tc = pending_tool_calls[idx]
                         if tc_delta.get("id"):
                             tc["id"] = tc_delta["id"]
@@ -290,20 +303,21 @@ def chat_stream(messages, tools=None):
                             yield ("token", event[1])
                         elif event[0] == "tool_call" and not saw_structured:
                             name, args = event[1]
-                            pending_tool_calls.append({
-                                "id": f"call_{uuid.uuid4().hex[:8]}",
-                                "type": "function",
-                                "function": {
-                                    "name": name,
-                                    "arguments": json.dumps(
-                                        args, ensure_ascii=False
-                                    ),
-                                },
-                            })
+                            pending_tool_calls.append(
+                                {
+                                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": name,
+                                        "arguments": json.dumps(
+                                            args, ensure_ascii=False
+                                        ),
+                                    },
+                                }
+                            )
 
                 if done:
                     break
-
 
         if text_parser is not None:
             for event in text_parser.flush():
@@ -314,6 +328,7 @@ def chat_stream(messages, tools=None):
             yield ("tool_calls", pending_tool_calls)
     finally:
         _llm_idle.set()
+
 
 def generate_stream(messages):
     for event in chat_stream(messages):

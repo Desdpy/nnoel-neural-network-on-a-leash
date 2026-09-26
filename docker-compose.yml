@@ -10,13 +10,14 @@ services:
     volumes:
       - models_data:/app/models:Z        # Persist downloaded models
       - ./data:/app/data:Z               # Persist chat history (SQLite)
-      # User plugins (backend + frontend halves) are mounted, never
-      # baked in. The entrypoint rebuilds the frontend bundle at
-      # container start if any ``plugins/*/frontend/index.ts{,x}`` is
-      # present, so a new plugin needs a *fresh container*:
-      # ``docker compose up -d --force-recreate nnoel`` (a plain
-      # ``up`` won't restart an already-running container).
-      - ./plugins:/app/plugins:Z
+      - ./plugins:/app/plugins:Z         # Co-located user plugins (backend + frontend halves)
+      # Personal config, mounted over the copy baked into the image so
+      # edits apply on ``docker compose restart`` with no rebuild. It
+      # must be a FILE on the host — create it first with
+      # ``cp config.example.toml config.toml``. If it is missing, Docker
+      # bind-mounts a directory over the baked file and the container
+      # refuses to start.
+      - ./config.toml:/app/config.toml:Z
     restart: unless-stopped
 
 volumes:
