@@ -11,10 +11,24 @@
 set -eu
 cd /app
 
-# --- Config: nothing to do here. ---
-# ``config.py`` reads a single file, ``/app/config.toml``. The image
-# bakes that file in, and the dev compose file bind-mounts the host
-# copy over it, so it is always present and always authoritative.
+# --- Config sanity check. ---
+# ``config.py`` reads a single file, ``/app/config.toml``, and opens it
+# at import time with no fallback, so a missing file means the server
+# cannot boot. The image bakes the tracked ``config.example.toml`` in
+# under that name; the dev compose file bind-mounts the host
+# ``config.toml`` over it. If the mount is ever a directory (e.g. a
+# stray ``config.toml/`` on the host) or the baked copy is gone, fail
+# with an actionable message instead of a TOML parse traceback.
+if [ ! -f /app/config.toml ]; then
+    echo "[entrypoint] ERROR: /app/config.toml is not a readable file." >&2
+    echo "[entrypoint] The server needs it (backend/config.py opens it at" >&2
+    echo "[entrypoint] startup with no fallback). Fix with:" >&2
+    echo "[entrypoint]     cp config.example.toml config.toml" >&2
+    echo "[entrypoint] If a config.toml DIRECTORY exists on the host, remove" >&2
+    echo "[entrypoint] it first — a bind mount cannot shadow a file with a" >&2
+    echo "[entrypoint] directory and the container will not start." >&2
+    exit 1
+fi
 
 # If any user frontend plugins are mounted, rebuild the bundle so
 # the browser gets the new panels. The glob picks them up

@@ -50,9 +50,17 @@ Requirements:
 sudo zypper install gcc-c++ cmake
 ```
 
-Edit `config.toml` at the repo root to configure the model and TTS. It is the
-only config file the app reads; in the dev compose setup it is bind-mounted
-into the container, so edits apply on `docker compose restart` with no rebuild.
+Copy the tracked config template and edit your copy — `config.toml` is
+gitignored, so your personal settings stay out of the repo:
+
+```bash
+cp config.example.toml config.toml
+```
+
+`config.toml` is the only config file the app reads (no fallback). In the
+dev compose setup it is bind-mounted into the container, so edits apply on
+`docker compose restart` with no rebuild; the image itself bakes in
+`config.example.toml` as the default, so a fresh clone runs without this step.
 
 ```toml
 [server]

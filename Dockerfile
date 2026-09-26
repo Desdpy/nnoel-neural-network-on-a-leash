@@ -59,11 +59,14 @@ COPY --from=frontend-builder /build/frontend/node_modules frontend/node_modules/
 # + empty ``user_plugins/`` was removed; the registry now scans the
 # unified ``plugins/`` dir).
 COPY backend/ backend/
-# The single config file, baked in at the project root. In the dev
-# compose setup ``./config.toml`` is bind-mounted over this, so host
-# edits take effect on container restart without a rebuild. The
-# prebuilt-image compose file leaves this baked copy in place.
-COPY config.toml config.toml
+# Config: bake the *tracked* template as the runtime default. The real
+# ``config.toml`` holds personal settings, is gitignored, and is not
+# part of the build context — referencing it here would break the build
+# on a fresh clone / in CI and would bake personal values into a
+# released image. The dev compose file bind-mounts the host
+# ``config.toml`` over this copy, so personal settings apply on
+# container restart without a rebuild.
+COPY config.example.toml config.toml
 COPY --from=frontend-builder /build/frontend/dist frontend/dist/
 
 # Install Python dependencies.

@@ -47,7 +47,7 @@ data/
 # Plugins directory
 plugins/
 
-# Personal server config. The app reads a single ``config.toml`` at the
-# project root; this file is no longer loaded by anything and is kept
-# only as a personal reference copy, so it stays untracked.
+# Your real config: a copy of the tracked ``config.example.toml`` with
+# your personal settings. The app reads only this file; it is gitignored
+# so those settings are never committed.
 config.toml

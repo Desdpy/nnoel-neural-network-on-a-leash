@@ -1,9 +1,15 @@
-# Nnoel server configuration — the single config file for the project.
+# Nnoel server configuration — TEMPLATE shipped with the repo.
 #
-# ``backend/config.py`` reads exactly this file (``<repo root>/config.toml``).
-# The Docker image bakes it in; the dev compose file bind-mounts the host
-# copy over it, so edits take effect on ``docker compose restart`` without
-# a rebuild. Edit it in place — there is no separate personal-override file.
+# Copy it and edit the copy; the real config file is gitignored so your
+# personal settings are never committed:
+#
+#     cp config.example.toml config.toml
+#
+# ``backend/config.py`` reads exactly ``<repo root>/config.toml`` — that
+# one file, no fallback. In Docker the image bakes *this template* in as
+# ``/app/config.toml`` (so a fresh clone runs with these defaults), and
+# the dev compose file bind-mounts your host ``config.toml`` over it, so
+# personal settings apply on ``docker compose restart`` with no rebuild.
 
 [server]
 # Network interface and port the FastAPI server binds to
