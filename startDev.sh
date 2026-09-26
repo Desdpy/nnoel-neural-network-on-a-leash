@@ -4,9 +4,20 @@ set -e
 
 echo "==> Building frontend..."
 # The Vite glob in ``frontend/src/plugins/registry.ts`` walks up to
-# the repo root and globs ``plugins/*/frontend/index.ts`` directly,
-# so no copy/sync step is needed — the plugin source lives at the
-# path the build expects.
+# the repo root and globs ``plugins/*/frontend/index.{ts,tsx}``
+# directly, so no copy/sync step is needed — the plugin source lives at
+# the path the build expects.
+#
+# Those plugin sources sit outside the Vite project, so both ``tsc`` and
+# Vite resolve their bare imports by walking up to a root
+# ``node_modules`` — the symlink that ``npm install`` creates via the
+# ``postinstall`` hook in frontend/package.json. That install is a hard
+# prerequisite, so run it when missing; otherwise a fresh clone dies at
+# ``npm run build`` with a missing-script error.
+if [ ! -d frontend/node_modules ]; then
+    echo "    frontend/node_modules missing — running npm install..."
+    ( cd frontend && npm install )
+fi
 cd frontend && npm run build && cd ..
 
 echo ""

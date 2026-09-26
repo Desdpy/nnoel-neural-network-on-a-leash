@@ -47,13 +47,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /app/plugins
 
 # Frontend source (so the entrypoint can rebuild with mounted user
-# plugins) + node_modules from the builder. The entrypoint's rebuild
-# only works because this glibc ``node_modules`` is ABI-compatible
-# with this Debian runtime *and* because it creates a repo-root
-# ``node_modules`` symlink (see ``backend/entrypoint.sh``) so plugin
-# sources outside the Vite project can resolve bare imports.
+# plugins) + node_modules from the builder.
+#
+# ``node_modules`` is installed at the *repo root* (/app), not at
+# /app/frontend/node_modules, and there is exactly one copy of it. That
+# matters because plugin sources live at /app/plugins/<id>/frontend/,
+# outside the Vite project: both TypeScript and Vite resolve their bare
+# imports (``react``, ``three``, …) by walking up the directory tree
+# looking for ``node_modules``, so a single root-level install is found
+# from the plugin folder *and* from /app/frontend, with no symlink
+# anywhere. (npm would normally pin it next to frontend/package.json,
+# which is why the host checkout still uses the ``postinstall`` symlink
+# in frontend/scripts/sync-root-symlink.cjs — the image has no such
+# constraint because it never runs ``npm install``.)
+#
+# This glibc ``node_modules`` is ABI-compatible with the Debian runtime
+# above; see the frontend-builder stage note.
 COPY frontend/ frontend/
-COPY --from=frontend-builder /build/frontend/node_modules frontend/node_modules/
+COPY --from=frontend-builder /build/frontend/node_modules node_modules/
 
 # Backend (loader in ``backend/plugins/`` + the entrypoint/sync scripts
 # + empty ``user_plugins/`` was removed; the registry now scans the
