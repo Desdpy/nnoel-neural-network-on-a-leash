@@ -14,7 +14,7 @@ services:
     ports:
       - "11434:8080"
     volumes:
-      - ./test:/models:Z
+      - ./models:/models:Z
     deploy:
       resources:
         reservations:

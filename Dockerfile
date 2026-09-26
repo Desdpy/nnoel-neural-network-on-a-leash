@@ -1,5 +1,12 @@
 # === Stage 1: Build the Vite frontend ===
-FROM node:22-alpine AS frontend-builder
+# Must be glibc (Debian), NOT alpine: this stage's ``node_modules`` is
+# copied verbatim into the Debian-based runtime stage below, and the two
+# ship different native binaries for the same packages (rollup,
+# esbuild). An alpine builder installs ``@rollup/rollup-linux-x64-musl``
+# and the runtime would then fail the entrypoint's rebuild with
+# ``Cannot find module '@rollup/rollup-linux-x64-gnu'``. Only this
+# build stage is glibc — it is never part of the final image.
+FROM node:22-slim AS frontend-builder
 WORKDIR /build/frontend
 # Copy package files + the postinstall script. The package.json
 # ``postinstall`` hook (``scripts/sync-root-symlink.cjs``) creates
@@ -40,8 +47,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /app/plugins
 
 # Frontend source (so the entrypoint can rebuild with mounted user
-# plugins) + node_modules from the builder (same Node 22, so the
-# prebuilt deps are compatible).
+# plugins) + node_modules from the builder. The entrypoint's rebuild
+# only works because this glibc ``node_modules`` is ABI-compatible
+# with this Debian runtime *and* because it creates a repo-root
+# ``node_modules`` symlink (see ``backend/entrypoint.sh``) so plugin
+# sources outside the Vite project can resolve bare imports.
 COPY frontend/ frontend/
 COPY --from=frontend-builder /build/frontend/node_modules frontend/node_modules/
 
@@ -61,13 +71,6 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Entrypoint: optionally rebuild the bundle to pick up mounted
 # user plugins, then exec the backend.
 RUN chmod +x backend/entrypoint.sh
-
-# Download the GGUF model + multimodal projection from Hugging Face
-RUN mkdir -p /app/models && \
-    curl -#L -o /app/models/main.gguf \
-        "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf" && \
-    curl -#L -o /app/models/main-mmproj.gguf \
-        "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-BF16.gguf"
 
 # Download the Piper TTS model (en_US-amy-medium, single female voice).
 RUN mkdir -p /app/models/tts/vits-piper-en_US-amy-medium && \

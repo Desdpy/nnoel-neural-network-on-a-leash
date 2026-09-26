@@ -28,10 +28,9 @@ A local-first AI assistant that works on CPU only systems, whose every action is
 ### Frontend
 - Typescript
 - React
-- Tailwind CSS
+- Three.js
 - Vite
-- Dockview
-- Shadcn UI
+- Plain CSS (hand-written; no CSS framework)
 
 ### Backend
 - Python 3.11+
@@ -121,9 +120,13 @@ plugins/weather/
     plugin.py             # class WeatherPlugin(Plugin): ...
     tool.py               # SCHEMA + run()
   frontend/               # frontend half (optional — only if you want a GUI)
-    index.ts              # default-export FrontendPlugin
+    index.tsx             # default-export FrontendPlugin
     WeatherPanel.tsx
 ```
+
+The frontend entry point may be named `index.tsx` or `index.ts` — both are
+globbed by the frontend registry and both are detected by the container
+entrypoint.
 
 #### Backend half
 
@@ -182,7 +185,7 @@ export default {
 
 **Why `../../types`?** The frontend registry's Vite glob walks up to the repo root and resolves `plugins/*/frontend/index.ts` directly — no copy step is needed. The relative `../../types` resolves correctly from the plugin's source location (`plugins/<id>/frontend/`), and the `@` alias in `vite.config.ts` is an absolute path so `@/lib/logger`, `@/components/ui/...`, and `@/plugins/types` all resolve to files under `frontend/src/` regardless of where the plugin lives on disk.
 
-The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("../../../plugins/*/frontend/index.ts", { eager: true })` to pick up every plugin's `index.ts` at build time and produces `pluginComponents` (merged into Dockview's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by `TaskBar`).
+The frontend registry (`frontend/src/plugins/registry.ts`) uses Vite's `import.meta.glob("../../../plugins/*/frontend/index.{ts,tsx}", { eager: true })` to pick up every plugin's entry point at build time and produces `pluginComponents` (merged into the 3D menu's `components` prop), `pluginToolToPanel` (LLM-tool-name → `ToolPanelSpec`), and `pluginTaskbarEntries` (rendered by the menu satellites).
 
 Supported taskbar icons (by name): `clock`, `cloud`, `search`, `notebook`, `note`, `globe`. Add more by extending the `iconRegistry` in `frontend/src/components/TaskBar.tsx`.
 
@@ -193,14 +196,31 @@ Supported taskbar icons (by name): `clock`, `cloud`, `search`, `notebook`, `note
 
 #### Activate
 
-**With the prebuilt image (`docker-compose.yml`)**: drop the folder, restart the container, refresh the browser. The entrypoint detects the mounted frontend plugins and rebuilds the bundle (~3 s when a frontend plugin is present, zero overhead otherwise), then the backend's Python registry picks up the backend half on import. **No `docker build` needed.**
+**With the prebuilt image (`docker-compose.yml`)**: drop the folder into `./plugins/`, restart the container, refresh the browser. The `./plugins:/app/plugins` mount makes the host folder visible at the path the Vite glob expects, the entrypoint detects the mounted frontend plugins and rebuilds the bundle (~3 s when a frontend plugin is present, zero overhead otherwise), then the backend's Python registry picks up the backend half on import. **No `docker build` needed.**
 
 ```bash
 mkdir -p plugins/weather/{backend,frontend}
 # ... create the files ...
 docker compose restart nnoel
-# browser refresh → "Weather" in the sidebar
+# browser refresh → "Weather" in the menu
 ```
+
+> **Important — `up` alone will not rebuild.** The rebuild happens in the
+> container entrypoint, so it only runs when the container *starts*. If the
+> container is already running, `docker compose up` is a no-op for it and your
+> new plugin is silently ignored. After changing anything under `./plugins/`,
+> force a fresh container:
+>
+> ```bash
+> docker compose up -d --force-recreate nnoel   # or: docker compose restart nnoel
+> ```
+>
+> Verify it took effect:
+>
+> ```bash
+> docker compose logs nnoel | grep -i "frontend plugins"
+> # [entrypoint] User frontend plugins detected, rebuilding bundle...
+> ```
 
 **With the from-source image (`docker-compose.prod.yml`)**: same as above, but you can also bake the plugin into the image by re-running `docker compose -f docker-compose.prod.yml up --build`.
 
@@ -214,7 +234,7 @@ cd .. && python3 backend/server.py
 ### Discovery mechanism (summary)
 
 - **Backend**: `backend/plugins/registry.py` walks `plugins/<id>/backend/plugin.py` at server startup, imports each as `nnoel_plugins.<id>.backend.plugin` via a synthetic parent module, and aggregates.
-- **Frontend**: `frontend/src/plugins/registry.ts` uses Vite's `import.meta.glob("../../../plugins/*/frontend/index.ts")` to pick up every plugin's `index.ts` at build time. The same glob works in dev, `startProd.sh`, and the container — in Docker the `./plugins:/app/plugins` volume mount makes the host's plugin dir visible at the path the glob expects.
+- **Frontend**: `frontend/src/plugins/registry.ts` uses Vite's `import.meta.glob("../../../plugins/*/frontend/index.{ts,tsx}")` to pick up every plugin's entry point at build time. The same glob works in dev, `startProd.sh`, and the container — in Docker the `./plugins:/app/plugins` volume mount makes the host's plugin dir visible at the path the glob expects.
 
 ### URL namespace
 
@@ -225,6 +245,8 @@ Custom plugin endpoints are mounted at `/plugins/<id>/...`. The time plugin's au
 The prebuilt image is **barebones** — zero plugins baked in. It ships the Python backend, Node.js 22, the frontend source, and the Vite `node_modules` so the entrypoint can rebuild the bundle at container start. The user's `plugins/` is mounted as a single volume; the entrypoint normalises it and optionally rebuilds.
 
 **No `docker build`, no `npm run build` on the host.** Just drop plugin folders and restart.
+
+Because the rebuild compiles the *plugin* sources inside the container, the image's `frontend/node_modules` must contain every dependency the plugin half imports, and its `frontend/src/plugins/*` must match the plugin API the folder expects. Adding a runtime dependency to `frontend/package.json` therefore requires a **new image** — a plugin that imports a package the image doesn't ship will fail the in-container `npm run build`, and with `set -eu` in the entrypoint that surfaces as a container that exits at startup (check `docker compose logs nnoel`).
 
 #### Install + first run (no clone needed)
 

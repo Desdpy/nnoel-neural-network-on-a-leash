@@ -7,14 +7,19 @@ import type { PluginUi } from "./types";
 // plugin is as simple as creating a folder with that shape — no
 // edits here required.
 //
-// ``../plugins/`` lives outside the Vite root, so
-// ``vite.config.ts`` explicitly adds it to ``server.fs.allow``.
+// ``../plugins/`` lives outside the Vite root, so the dev server
+// needs it in ``server.fs.allow``.
 //
 // Each module is expected to export a default ``PluginUi``. Modules
 // that don't (e.g. partial migrations, broken builds) are silently
 // skipped so a single broken plugin can't take down the whole shell.
+//
+// Both entry-point spellings are globbed (``index.ts`` and
+// ``index.tsx``) so a plugin folder matches regardless of whether it
+// ships plain TS or TSX. ``backend/entrypoint.sh`` uses the same two
+// names to decide whether a rebuild is needed at container start.
 const modules = import.meta.glob<{ default: PluginUi }>(
-  "../../../plugins/*/frontend/index.tsx",
+  "../../../plugins/*/frontend/index.{ts,tsx}",
   { eager: true }
 );
 

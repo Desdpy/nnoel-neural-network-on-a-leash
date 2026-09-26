@@ -1,6 +1,10 @@
 node_modules/
+**/node_modules
 .venv/
+**/.venv
 __pycache__/
+**/__pycache__
+**/dist
 *.py[cod]
 *.pyo
 *.egg-info/
@@ -11,6 +15,9 @@ __pycache__/
 .npmrc
 .zed/
 models/
+**/models
+.mypy_cache/
+.pytest_cache/
 start.sh
 docker-compose.yml
 docker-compose.prod.yml

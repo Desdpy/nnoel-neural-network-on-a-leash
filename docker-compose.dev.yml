@@ -8,16 +8,16 @@ services:
       # Flush Python stdout/stderr immediately (no buffering)
       PYTHONUNBUFFERED: "1"
     volumes:
-      - models_data:/app/models        # Persist downloaded models
-      - ./data:/app/data               # Persist chat history (SQLite)
-      - ./plugins:/app/plugins         # Co-located user plugins (backend + frontend halves)
+      - models_data:/app/models:Z        # Persist downloaded models
+      - ./data:/app/data:Z               # Persist chat history (SQLite)
+      - ./plugins:/app/plugins:Z         # Co-located user plugins (backend + frontend halves)
       # ``./config.local.toml`` is optional. The directory mount
       # always succeeds even when the file doesn't exist on the
       # host; the entrypoint then copies the default config in place
       # if no ``config.local.toml`` is present in the bind-mounted
       # directory. To customise, create ``./config.local.toml`` at
       # the repo root and restart the container.
-      - ./config.d:/app/config.d:ro
+      - ./config.d:/app/config.d:Z
     restart: unless-stopped
 
 volumes:
