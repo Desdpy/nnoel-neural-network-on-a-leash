@@ -1,13 +1,9 @@
-# Nnoel server configuration — DEFAULT settings shipped with the repo.
+# Nnoel server configuration — the single config file for the project.
 #
-# To customize, copy this file to ``config.local.toml`` and edit the
-# copy. ``config.local.toml`` is read in preference to this file and is
-# git-ignored, so your personal settings won't be committed.
-#
-# In the Docker dev setup, the bind mount
-# ``./config.local.toml:/app/config.local.toml`` is what actually runs
-# the server. If the file doesn't exist on the host, the container
-# falls back to this default.
+# ``backend/config.py`` reads exactly this file (``<repo root>/config.toml``).
+# The Docker image bakes it in; the dev compose file bind-mounts the host
+# copy over it, so edits take effect on ``docker compose restart`` without
+# a rebuild. Edit it in place — there is no separate personal-override file.
 
 [server]
 # Network interface and port the FastAPI server binds to
@@ -32,8 +28,8 @@ model_dir = "models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 # Path to the Silero VAD model file (relative to project root or absolute).
 vad_model = "models/stt/silero_vad.onnx"
 # Default language label.  Falls back to this when [lid] is disabled
-# or can't classify the utterance. See comments in config.local.toml
-# for the full list of Parakeet's 25 supported languages.
+# or can't classify the utterance. Parakeet supports 25 languages;
+# see the ``language`` notes further down this file.
 language = "en"
 # --- VAD parameters ---
 vad_threshold = 0.5
@@ -66,15 +62,12 @@ adaptive_first_chunk_words = 1
 [agent]
 name = "Nnoel"
 # The system prompt is intentionally short in the default config —
-# copy this file to ``config.local.toml`` and add your persona,
-# rules, and few-shot examples there. See config.local.toml for a
-# complete starter prompt you can iterate from.
+# add your persona, rules, and few-shot examples right here.
 system_prompt = """ """
 
 # Websites that should appear as a satellite in the menu. Each
-# entry becomes a clickable ball; clicking opens the URL. To add
-# your own, copy this file to ``config.local.toml`` and uncomment
-# / extend ``[websites.entries]``.
+# entry becomes a clickable ball; clicking opens the URL. Add your
+# own by uncommenting / extending ``[[websites.entries]]``.
 #
 # Per-entry fields:
 #   id       — required, unique satellite id

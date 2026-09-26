@@ -11,13 +11,11 @@ services:
       - models_data:/app/models:Z        # Persist downloaded models
       - ./data:/app/data:Z               # Persist chat history (SQLite)
       - ./plugins:/app/plugins:Z         # Co-located user plugins (backend + frontend halves)
-      # ``./config.local.toml`` is optional. The directory mount
-      # always succeeds even when the file doesn't exist on the
-      # host; the entrypoint then copies the default config in place
-      # if no ``config.local.toml`` is present in the bind-mounted
-      # directory. To customise, create ``./config.local.toml`` at
-      # the repo root and restart the container.
-      - ./config.d:/app/config.d:Z
+      # Single source of truth for config: the host file is mounted over
+      # the copy baked into the image, so edits take effect on
+      # ``docker compose restart`` with no rebuild. ``config.toml`` is
+      # tracked, so this file always exists on the host.
+      - ./config.toml:/app/config.toml:Z
     restart: unless-stopped
 
 volumes:

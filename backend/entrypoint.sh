@@ -11,22 +11,10 @@
 set -eu
 cd /app
 
-# --- Ensure ``config.local.toml`` exists so ``config.py`` finds it. ---
-# ``/app/config.toml`` is baked into the image (tracked default).
-# The host can optionally bind-mount a directory at ``/app/config.d``
-# containing ``config.local.toml``; if present, ``config.py`` picks it
-# over the default. If the directory is empty (most users), copy the
-# default in place so ``config.py`` has something to read.
-mkdir -p /app/config.d
-if [ ! -f /app/config.local.toml ]; then
-    if [ -f /app/config.d/config.local.toml ]; then
-        echo "[entrypoint] Using mounted /app/config.d/config.local.toml"
-        cp /app/config.d/config.local.toml /app/config.local.toml
-    else
-        echo "[entrypoint] No config.local.toml provided; using tracked config.toml only."
-        cp /app/config.toml /app/config.local.toml
-    fi
-fi
+# --- Config: nothing to do here. ---
+# ``config.py`` reads a single file, ``/app/config.toml``. The image
+# bakes that file in, and the dev compose file bind-mounts the host
+# copy over it, so it is always present and always authoritative.
 
 # If any user frontend plugins are mounted, rebuild the bundle so
 # the browser gets the new panels. The glob picks them up

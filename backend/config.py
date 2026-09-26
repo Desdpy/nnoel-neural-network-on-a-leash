@@ -3,15 +3,13 @@ from pathlib import Path
 
 import tomllib
 
-# Path to the user-editable TOML configuration file. We prefer
-# ``config.local.toml`` (gitignored personal settings) and fall
-# back to the tracked ``config.toml`` defaults if the local file
-# doesn't exist. Both files live at the project root so they're
-# usable outside of the backend (tooling, container bind mounts).
+# Path to the user-editable TOML configuration file. There is a single
+# config file for the whole project: ``config.toml`` at the project
+# root, so it's usable outside of the backend (tooling, container bind
+# mounts). The Docker image bakes it in; the dev compose file bind-mounts
+# the host copy over it so edits apply on restart without a rebuild.
 _PROJECT_ROOT = Path(__file__).parent.parent
-_LOCAL_CONFIG = _PROJECT_ROOT / "config.local.toml"
-_DEFAULT_CONFIG = _PROJECT_ROOT / "config.toml"
-CONFIG_PATH = _LOCAL_CONFIG if _LOCAL_CONFIG.exists() else _DEFAULT_CONFIG
+CONFIG_PATH = _PROJECT_ROOT / "config.toml"
 
 # Load the entire config file into a dictionary
 with open(CONFIG_PATH, "rb") as f:

@@ -50,7 +50,9 @@ Requirements:
 sudo zypper install gcc-c++ cmake
 ```
 
-Edit `backend/config.toml` to configure the model and TTS:
+Edit `config.toml` at the repo root to configure the model and TTS. It is the
+only config file the app reads; in the dev compose setup it is bind-mounted
+into the container, so edits apply on `docker compose restart` with no rebuild.
 
 ```toml
 [server]
@@ -58,8 +60,11 @@ host = "0.0.0.0"
 port = 5000
 
 [llama]
-n_ctx = 32768
-n_threads = 6
+# The LLM runs as a separate OpenAI-compatible server (see
+# docker-compose.llama.yml), not inside this image.
+url = "http://localhost:11434"
+api_key = ""
+model_name = "default"
 ```
 
 ### 2. Install backend
