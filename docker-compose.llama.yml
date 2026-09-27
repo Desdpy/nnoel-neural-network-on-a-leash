@@ -3,14 +3,14 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     command: >
       --model /models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
-      --mmproj /models/gemma-4-12B-QAT-mmproj-BF16.gguf
+      --mmproj /models/mmproj-BF16.gguf
       --flash-attn on
       --ctx-size 32768
       --n-gpu-layers 999
       --temperature 1.0
       --top-p 0.95
       --top-k 64
-      --chat-template-kwargs '{"enable_thinking":false}'
+      --reasoning off
     ports:
       - "11434:8080"
     volumes:
