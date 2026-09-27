@@ -10,8 +10,6 @@ import {
   GLOW_TEXTURE,
   makeDottedRingGeometry,
 } from "./constants";
-import { createFaceLights } from "./faceLights";
-import type { FaceLight } from "./faceLights";
 import { createHologramMaterial } from "./hologramMaterial";
 
 /** A pair of renderers: the WebGL one draws the 3D scene, the
@@ -27,8 +25,27 @@ export interface SceneRenderers {
  * container is set to ``pointer-events: none`` so clicks/drags
  * fall through to the WebGL canvas underneath. */
 export function createRenderers(mount: HTMLElement): SceneRenderers {
-  const webgl = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  webgl.setPixelRatio(window.devicePixelRatio);
+  // ``antialias`` is off deliberately. This is a full-viewport
+  // ``position: fixed`` canvas with a transparent clear, so MSAA
+  // costs multiple samples per pixel plus a resolve blit over the
+  // whole screen every frame — and the scene is almost entirely
+  // soft glows, additive sprites and thin lines, with hardly a
+  // hard polygon edge for it to smooth. The fill-rate budget buys
+  // more here as raw resolution than as samples.
+  //
+  // The tradeoff: the sub-pixel geometry (``orbitB``'s torus has a
+  // tube radius of 0.0045 world units, roughly 1px on screen) will
+  // alias more visibly without it. If the rings look ragged, raise
+  // the pixel-ratio clamp below rather than turning AA back on.
+  const webgl = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+  // Clamp the device pixel ratio. Every material in this scene is
+  // transparent (most of them additively blended with ``depthWrite``
+  // off), so fragment cost scales with the square of the pixel
+  // ratio and there is no early-z to claw it back. At DPR 3 the
+  // menu renders 9x the fragments of DPR 1 for no visible gain on
+  // a scene made of soft glows. 1.5 keeps the glows smooth while
+  // capping the fill-rate bill.
+  webgl.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   webgl.setSize(mount.clientWidth, mount.clientHeight);
   // Transparent so the canvas behind shows through.
   webgl.setClearColor(0x000000, 0);
@@ -57,7 +74,7 @@ export function createRenderers(mount: HTMLElement): SceneRenderers {
  * binding constraint and we'd otherwise have the leftmost /
  * rightmost balls clipped off-screen.
  *
- * The margin multiplier (1.6) leaves breathing room around the
+ * The margin multiplier (1.2) leaves breathing room around the
  * globe so the orbit feels spacious rather than packed. */
 function fitCameraDistance(
   viewportWidth: number,
@@ -72,9 +89,9 @@ function fitCameraDistance(
   const halfHeight = halfTanV;
   const halfWidth = halfTanV * aspect;
   // Distance so the sphere of radius ``orbitRadius`` fits, with
-  // a 1.6x margin (the sphere itself, plus label/halo breathing
+  // a 1.2x margin (the sphere itself, plus label/halo breathing
   // room).
-  const margin = 1.6;
+  const margin = 1.2;
   return orbitRadius * margin / Math.min(halfHeight, halfWidth);
 }
 
@@ -122,7 +139,6 @@ export function createScene(): {
 export function createCenterBall(world: THREE.Group): {
   group: THREE.Group;
   gridMat: THREE.ShaderMaterial;
-  faceLights: { group: THREE.Group; lights: FaceLight[] };
   ring: THREE.Points;
   pulseOrbit: THREE.Group;
   pulseMat: THREE.SpriteMaterial;
@@ -172,9 +188,6 @@ export function createCenterBall(world: THREE.Group): {
     gridMat
   );
   group.add(grid);
-
-  const faceLights = createFaceLights(grid.geometry, CENTER_RING_BRIGHT, 18);
-  group.add(faceLights.group);
 
   const ringMat = new THREE.PointsMaterial({
     color: CENTER_RING_BRIGHT,
@@ -287,7 +300,6 @@ export function createCenterBall(world: THREE.Group): {
   return {
     group,
     gridMat,
-    faceLights,
     ring,
     pulseOrbit,
     pulseMat,

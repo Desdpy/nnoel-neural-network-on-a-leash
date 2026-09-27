@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import type { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { FaceLight } from "./faceLights";
 
 /** Everything we need to render and interact with one satellite
  * (halo + shell + core + connection line + DOM label + pulse
@@ -15,7 +14,6 @@ export interface Satellite {
   coreMat: THREE.MeshBasicMaterial;
   shell: THREE.Mesh; // also the raycast target
   grid: THREE.Mesh;
-  faceLights: { group: THREE.Group; lights: FaceLight[] };
   ring: THREE.Points;
   pulseOrbit: THREE.Group;
   pulseMat: THREE.SpriteMaterial;

@@ -5,7 +5,6 @@ import {
   makeDottedRingGeometry,
 } from "./constants";
 import type { Satellite } from "./types";
-import { createFaceLights } from "./faceLights";
 import { createHologramMaterial } from "./hologramMaterial";
 import {
   imageIconUrl,
@@ -82,9 +81,6 @@ export function buildSatellite(
   );
   grid.userData.id = id;
   group.add(grid);
-
-  const faceLights = createFaceLights(grid.geometry, ringBright, 12);
-  group.add(faceLights.group);
 
   const ringMat = new THREE.PointsMaterial({
     color: ringBright,
@@ -240,7 +236,6 @@ export function buildSatellite(
     coreMat,
     shell,
     grid,
-    faceLights,
     ring,
     pulseOrbit,
     pulseMat,

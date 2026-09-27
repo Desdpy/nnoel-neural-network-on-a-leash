@@ -245,7 +245,15 @@ export function setupClickDetection(
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
 
-    const meshes = satellites.map((s) => s.shell);
+    // Only test shells that are actually on screen. The render
+    // loop hides satellites (panel open, or culled at the far pole
+    // of the globe) by setting ``group.visible = false``, and
+    // ``Raycaster`` does not consider ancestor visibility — so
+    // without this filter an invisible ball would still be
+    // hoverable and clickable.
+    const meshes = satellites
+      .filter((s) => s.group.visible)
+      .map((s) => s.shell);
     const hits = raycaster.intersectObjects(meshes, false);
     const clickedId = hits.length > 0
       ? (hits[0].object.userData.id as string)
@@ -286,7 +294,15 @@ export function setupHoverDetection(
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
 
-    const meshes = satellites.map((s) => s.shell);
+    // Only test shells that are actually on screen. The render
+    // loop hides satellites (panel open, or culled at the far pole
+    // of the globe) by setting ``group.visible = false``, and
+    // ``Raycaster`` does not consider ancestor visibility — so
+    // without this filter an invisible ball would still be
+    // hoverable and clickable.
+    const meshes = satellites
+      .filter((s) => s.group.visible)
+      .map((s) => s.shell);
     const hits = raycaster.intersectObjects(meshes, false);
     const hoveredId = hits.length > 0
       ? (hits[0].object.userData.id as string)

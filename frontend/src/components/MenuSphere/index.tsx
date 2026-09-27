@@ -6,7 +6,6 @@ import { fetchConfig } from "../../api/config";
 import { buildSatellite } from "./buildSatellite";
 import { distributeSatellites } from "./distributeSatellites";
 import { ORBIT_RADIUS } from "./constants";
-import { updateFaceLights } from "./faceLights";
 import {
   createCenterBall,
   createRenderers,
@@ -28,6 +27,11 @@ import "./menu-label.css";
 import "./menu-panel.css";
 import "./menu-center-icon.css";
 import "./menu-satellite-icon.css";
+
+/** Satellites whose depth fade falls below this are skipped
+ * entirely by the render loop instead of being drawn at the
+ * ``depthMul`` floor. See the cull in the loop below. */
+const CULL_DEPTH01 = 0.04;
 
 // 3D menu: a "menu" ball at the origin, surrounded by a sphere of
 // satellite balls (one per plugin). Drag-to-rotate orbits the
@@ -179,13 +183,36 @@ export function MenuSphere() {
 
     // --- Render loop ---
     let animationId = 0;
+    // True once we have drawn a frame with everything hidden for
+    // the open panel. See the early return in ``render``.
+    let panelCleared = false;
     const render = () => {
+      const panelOpen = selectedIdRef.current !== null;
+
+      // While a panel is open every group in the scene is hidden,
+      // so the rendered image is empty and re-rendering it 60
+      // times a second just burns CPU: a full
+      // ``updateMatrixWorld`` traversal of the graph plus both
+      // renderers. The canvas retains its last frame, so we do
+      // need to draw exactly once to wipe it — after that there is
+      // nothing to change until the panel closes, so idle.
+      //
+      // Note this is a *panel* pause, not an idle pause: the scene
+      // never goes visually static, because the rings and pulse
+      // orbits rotate off ``t`` forever. Freezing on "no user
+      // input" would stop the animation, so the loop keeps
+      // scheduling frames and just returns early here.
+      if (panelOpen && panelCleared) {
+        animationId = requestAnimationFrame(render);
+        return;
+      }
+      panelCleared = panelOpen;
+
       const t = performance.now() * 0.001;
 
       // We hide the entire center group (halo + shell + core +
       // home icon) while a panel is open so the panel has the
       // full stage — no background menu noise.
-      const panelOpen = selectedIdRef.current !== null;
       center.group.visible = !panelOpen;
       center.labelObj.visible = !panelOpen;
       center.ring.lookAt(camera.position);
@@ -205,7 +232,6 @@ export function MenuSphere() {
         center.orbitMatA.opacity = 0.59;
         center.orbitMatB.opacity = 0.42;
         center.pulseMat.opacity = 0.85;
-        updateFaceLights(center.faceLights.lights, t, 0.85);
         center.labelEl.style.opacity = "0.95";
       }
 
@@ -257,6 +283,23 @@ export function MenuSphere() {
           Math.min(1, 1 - (dist - closestZ) / depthRange)
         );
 
+        // Cull the far pole of the globe. ``depthMul`` below floors
+        // at 0.1, so a fully-faded satellite still costs every draw
+        // call, uniform write and eased scale in this loop, plus a
+        // DOM style recalc for its label and icon. Anything inside
+        // the back cap is at most ~14% brightness and sits behind
+        // the centre ball, so skipping it is not visible. This only
+        // ever catches the few satellites in that cap (single-digit
+        // percent of the sphere), so treat it as a small win, not a
+        // fix for the frame budget.
+        if (depth01 < CULL_DEPTH01) {
+          s.group.visible = false;
+          s.labelObj.visible = false;
+          s.line.visible = false;
+          if (s.iconObj) s.iconObj.visible = false;
+          continue;
+        }
+
         const hoverBoost = s.hovered ? 0.25 : 0;
         const depthMul = 0.1 + depth01 * 0.9;
 
@@ -267,7 +310,6 @@ export function MenuSphere() {
         s.orbitMatA.opacity = 0.66 * depthMul;
         s.orbitMatB.opacity = 0.49 * depthMul;
         s.pulseMat.opacity = 0.85 * depthMul;
-        updateFaceLights(s.faceLights.lights, t, depthMul);
         s.coreMat.opacity = 0.85 * depthMul;
 
         const hoverTarget = s.hovered ? 1.5 : 1.0;
