@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { PALETTE, fibonacciSphere } from "./constants";
+import { WEBSITE_ICON } from "./satelliteIcons";
 import type { PendingSatellite } from "./types";
 
 /** Source shape for a single satellite to be placed on the
@@ -37,9 +38,10 @@ export interface WebsiteSource {
    */
   new_tab?: boolean;
   /**
-   * Icon name. A bare name (e.g. ``"github"``) is looked up as
-   * a Lucide icon. A name ending in ``.png`` or ``.svg`` is
-   * served from ``/icons/``. ``undefined`` = no icon.
+   * Icon filename from ``data/icons/`` on the backend, e.g.
+   * ``"truenas.png"``. The backend already drops names that don't
+   * resolve to a real file, so ``null``/omitted here means "use the
+   * globe fallback".
    */
   icon?: string | null;
 }
@@ -113,7 +115,10 @@ export function distributeSatellites(
       scale: 1,
       url: site.url,
       new_tab: site.new_tab,
-      icon: site.icon,
+      // ``site.icon`` is a filename from ``data/icons/``; the
+      // backend sends ``null`` when no such file exists, in which
+      // case we fall back to the globe.
+      icon: site.icon ?? WEBSITE_ICON,
     });
   });
 

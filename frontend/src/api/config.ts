@@ -15,6 +15,10 @@ export interface ConfigResponse {
     id: string;
     label: string;
     url: string;
+    new_tab?: boolean;
+    /** Filename in the backend's ``data/icons/`` dir, or ``null``
+     * when it doesn't resolve (the menu falls back to a globe). */
+    icon?: string | null;
   }>;
 }
 

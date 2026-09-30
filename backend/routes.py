@@ -12,6 +12,7 @@ import numpy as np
 from config import (
     AGENT_NAME,
     AGENT_SYSTEM_PROMPT,
+    ICONS_DIR,
     STT_ENABLED,
     TTS_FIRST_CHUNK_WORDS,
     TTS_MAX_CHARS,
@@ -27,7 +28,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from llama import chat_stream, get_llm
 from log import get_logger
 from stt import _event_to_wire_dict, get_stt, stt_disabled
@@ -150,6 +151,30 @@ def get_config():
         "plugins": tools.frontend_manifests,
         "websites": WEBSITES,
     }
+
+
+@router.get("/icons/{name}")
+def get_icon(name: str):
+    """Serve a website satellite icon from ``data/icons/``.
+
+    ``config.toml`` names icons as bare filenames, so ``name`` can
+    never contain a path separator. The ``Path(name).name`` check is
+    belt-and-braces against traversal attempts; ``resolve()`` plus
+    the ``is_relative_to`` test is the authoritative guard, and the
+    resolved path is what we hand to ``FileResponse`` so a symlink
+    pointing outside ``data/icons/`` can't be used to read other
+    files either.
+    """
+    if not name or name != Path(name).name:
+        raise HTTPException(status_code=404, detail="Icon not found")
+    path = (ICONS_DIR / name).resolve()
+    if not path.is_relative_to(ICONS_DIR.resolve()) or not path.is_file():
+        raise HTTPException(status_code=404, detail="Icon not found")
+    return FileResponse(
+        path,
+        media_type="image/svg+xml" if name.lower().endswith(".svg") else "image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/ping")

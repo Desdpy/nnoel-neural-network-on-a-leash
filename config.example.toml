@@ -87,17 +87,16 @@ system_prompt = """ """
 #              Use ``new_tab = true`` for sites that refuse to be
 #              iframed (X-Frame-Options, restrictive CSP, runtime
 #              crashes) or that need full browser features.
-#   icon     — optional icon shown inside the ball. A bare name
-#              (``"home"``, ``"clock"``, ``"globe"``, …) is looked
-#              up in the Lucide icon table. A name ending in
-#              ``.png`` or ``.svg`` is served from ``/icons/``
-#              (the Vite ``public/`` directory). Omit for the
-#              default coloured-sphere look. See
-#              ``frontend/src/lib/satelliteIcons.ts`` for the
-#              curated list of available Lucide icons.
+#   icon     — optional filename (``.png`` or ``.svg``) of an image
+#              in ``data/icons/``, shown inside the ball. Just the
+#              filename, no path: ``icon = "truenas.png"``. Omit it
+#              (or point it at a file that isn't there) and the ball
+#              falls back to the globe icon from the installed Lucide
+#              package.
 [websites]
 # [[websites.entries]]
 # id = "github"
 # label = "GitHub"
 # url = "https://github.com"
-# icon = "github"
+# new_tab = true
+# icon = "github.png"   # an image in data/icons/, or omit for the globe

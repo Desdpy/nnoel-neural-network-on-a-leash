@@ -100,6 +100,42 @@ LID_MODEL_DIR = str(
     else BASE_DIR / _raw_lid_model_dir
 )
 
+# --- Website satellite icons ---
+# ``icon = "foo.png"`` on a ``[[websites.entries]]`` entry names a
+# file in ``data/icons/``; the frontend loads it from ``/icons/``.
+# Only bare filenames inside that one directory are accepted — no
+# path separators, no ``..`` — so a config entry can't read files
+# elsewhere on disk.
+ICONS_DIR = BASE_DIR / "data" / "icons"
+_ICON_SUFFIXES = (".png", ".svg")
+
+
+def _website_icon(entry: dict) -> str | None:
+    """Return a safe icon filename for a website entry, or ``None``
+    so the frontend falls back to the globe icon.
+
+    Returns ``None`` when the entry sets no ``icon``, when the name
+    isn't a bare ``.png`` / ``.svg`` filename, or when no such file
+    exists in ``data/icons/`` (the common case after adding an entry
+    before dropping the image in). Never raises — a bad icon must not
+    take down the whole config load.
+    """
+    raw = entry.get("icon")
+    if not isinstance(raw, str):
+        return None
+    name = raw.strip()
+    if not name or name != Path(name).name:
+        return None
+    if not name.lower().endswith(_ICON_SUFFIXES):
+        return None
+    try:
+        if not (ICONS_DIR / name).is_file():
+            return None
+    except OSError:
+        return None
+    return name
+
+
 # --- Menu websites ---
 # Each entry under ``[websites.entries]`` becomes a satellite in
 # the menu. Clicking opens the URL in an embedded iframe. ``id``
@@ -119,18 +155,10 @@ WEBSITES: list[dict] = [
         # (X-Frame-Options, restrictive CSP, runtime crashes) or
         # that need full browser features (popups, downloads).
         "new_tab": bool(entry.get("new_tab", False)),
-        # ``icon`` is the satellite icon. Two shapes are accepted:
-        # - A bare name (e.g. ``"github"``) resolves to a Lucide
-        #   icon component (see ``frontend/src/lib/satelliteIcons.ts``
-        #   for the lookup table).
-        # - A filename ending in ``.png`` / ``.svg`` is served
-        #   from ``/icons/`` (the ``public/`` directory of the
-        #   frontend bundle). E.g. ``"github.png"`` renders
-        #   ``<img src="/icons/github.png">``.
-        # ``None`` (the default) means no icon is shown.
-        "icon": (
-            str(entry["icon"]) if entry.get("icon") is not None else None
-        ),
+        # ``icon`` is a filename in ``data/icons/``. ``None`` (the
+        # default, and the result for any name that doesn't resolve
+        # to a real file) makes the frontend show the globe icon.
+        "icon": _website_icon(entry),
     }
     for entry in config.get("websites", {}).get("entries", [])
 ]

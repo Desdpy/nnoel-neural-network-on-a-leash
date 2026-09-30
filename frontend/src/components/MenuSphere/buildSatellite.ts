@@ -10,6 +10,7 @@ import {
   imageIconUrl,
   isImageIcon,
   lucideIconSvg,
+  WEBSITE_ICON,
 } from "./satelliteIcons";
 
 /** Build a single satellite (halo + shell + core + connection
@@ -18,9 +19,10 @@ import {
  * reads as a single unit. The DOM label is a CSS2DObject so the
  * ``CSS2DRenderer`` projects it to screen each frame.
  *
- * ``iconName`` is the resolved icon string from ``config.toml``
- * or the plugin's frontend entry. ``undefined`` means no icon —
- * the ball stays a plain colored sphere. */
+ * ``iconName`` is the resolved icon string — a plugin's
+ * frontend entry, a core entry's name, or ``WEBSITE_ICON`` for
+ * website satellites. ``undefined`` means no icon — the ball stays
+ * a plain colored sphere. */
 export function buildSatellite(
   world: THREE.Group,
   id: string,
@@ -204,10 +206,9 @@ export function buildSatellite(
   if (iconName) {
     let inner = "";
     if (isImageIcon(iconName)) {
-      // ``.png`` / ``.svg`` filename — load from ``/icons/``
-      // (Vite serves files from ``frontend/public/`` at the
-      // site root). ``.svg`` renders inline so it can pick up
-      // ``currentColor`` if we ever want to tint it.
+      // ``.png`` / ``.svg`` filename — the backend serves it from
+      // ``data/icons/`` under ``/icons/``. Rendered as an ``<img>``
+      // so it works for both raster and vector files.
       const url = imageIconUrl(iconName);
       inner = `<img src="${url}" alt="" />`;
     } else {
@@ -220,6 +221,20 @@ export function buildSatellite(
       iconEl = document.createElement("div");
       iconEl.className = "menu-satellite-icon";
       iconEl.innerHTML = inner;
+      // The backend already drops icon names that don't exist at
+      // config-load time, but a file can be deleted while the server
+      // is running. Swap in the globe so the ball never shows a
+      // broken-image glyph.
+      const img = iconEl.querySelector("img");
+      if (img) {
+        img.addEventListener(
+          "error",
+          () => {
+            iconEl!.innerHTML = lucideIconSvg(WEBSITE_ICON) ?? "";
+          },
+          { once: true }
+        );
+      }
       iconObj = new CSS2DObject(iconEl);
       // Anchor at the ball's local origin. CSS2DRenderer centers
       // the icon on the projected anchor point.

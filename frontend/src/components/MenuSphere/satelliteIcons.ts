@@ -1,33 +1,44 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Globe } from "lucide-react";
+
 /**
  * Satellite-icon resolver. Used by the 3D menu so each ball can
- * show an icon (Lucide SVG or a PNG) instead of just a colored
- * sphere.
+ * show an icon (Lucide SVG or an image file) instead of just a
+ * colored sphere.
  *
  * Resolution order for a value coming from ``config.toml`` or a
  * plugin entry:
- *   1. ``undefined`` / empty string — no icon (just a colored
- *      sphere, current default).
- *   2. Ends in ``.png`` or ``.svg`` — treated as a filename and
- *      served from ``/icons/`` (the ``public/`` directory of the
- *      frontend bundle is mounted at the site root).
- *   3. Anything else — looked up as a Lucide icon name (kebab
- *      case, e.g. ``"github"``, ``"clock"``, ``"house"``). The
- *      table below maps a curated set of common names to their
- *      Lucide SVG path data (24×24 viewBox). Unknown names render
- *      nothing.
+ *   1. Ends in ``.png`` or ``.svg`` — an image filename served
+ *      from ``/icons/``, which the backend maps to
+ *      ``data/icons/`` on disk.
+ *   2. Anything else — looked up as a Lucide icon name (kebab
+ *      case, e.g. ``"clock"``, ``"house"``, ``"globe"``). Names
+ *      listed in ``LUCIDE_COMPONENTS`` are rendered from the
+ *      installed ``lucide-react`` package; the rest fall back to
+ *      the hand-rolled ``LUCIDE_PATHS`` table below. Unknown
+ *      names render nothing.
+ *   3. ``undefined`` / empty string — no icon (just a colored
+ *      sphere). Website satellites use this to mean "fall back to
+ *      the globe", so they never land here in practice.
  *
- * To add more Lucide icons:
- *   1. Find the icon's SVG on lucide.dev (e.g. ``/icons/github``)
- *      and copy the inner ``<path>`` elements.
- *   2. Add a line: ``github: [<path d="..."/>],``
- *   3. Use ``icon = "github"`` in the config or plugin entry.
- *
- * We use raw SVG strings (not React components) because the
- * satellite builder runs inside a ``useEffect``, where there's
- * no React tree to render into. Inline SVG also avoids the
- * bundle size hit of importing hundreds of Lucide components
- * just to use a handful.
+ * We need raw SVG strings (not React components) because the
+ * satellite builder runs inside a ``useEffect``, where there's no
+ * React tree to render into. For the package-backed icons we call
+ * ``renderToStaticMarkup`` once and cache the result, so the cost
+ * is paid a single time regardless of how many balls use it.
  */
+
+/** Icons served straight from the installed ``lucide-react``
+ * package, keyed by kebab-case name. Add an entry by importing the
+ * component here — no path data to copy by hand. */
+const LUCIDE_COMPONENTS: Record<string, typeof Globe> = {
+  globe: Globe,
+};
+
+/** Memoized ``renderToStaticMarkup`` output for
+ * ``LUCIDE_COMPONENTS`` keys. */
+const LUCIDE_COMPONENT_SVG: Record<string, string> = {};
 
 /** Lucide icons rendered as inline SVG path data. Each entry is
  * an array of ``<path>`` element descriptors matching the
@@ -63,14 +74,6 @@ const LUCIDE_PATHS: Record<string, Array<{ d: string }>> = {
     { d: "M12 6v6l4 2" },
     { d: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0" },
   ],
-  globe: [
-    { d: "M21.54 15H17a2 2 0 0 0-1.73 1l-2.49 4.32a1 1 0 0 1-.86.5h-2.84a1 1 0 0 1-.86-.5L5.73 16a2 2 0 0 0-1.73-1H2.46" },
-    { d: "M12 2a10 10 0 1 0 10 10" },
-    { d: "M22 12a10 10 0 0 0-20 0" },
-    { d: "M2 12a10 10 0 0 0 20 0" },
-    { d: "M12 2a14.5 14.5 0 0 0 0 20" },
-    { d: "M12 2a14.5 14.5 0 0 1 0 20" },
-  ],
   home: [
     { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" },
     {
@@ -94,10 +97,26 @@ const LUCIDE_PATHS: Record<string, Array<{ d: string }>> = {
   ],
 };
 
+/** Fallback icon for a website satellite. ``config.toml`` names a
+ * file in ``data/icons/``; when that file is missing the backend
+ * sends ``icon: null`` and we show the globe from the installed
+ * ``lucide-react`` package. */
+export const WEBSITE_ICON = "globe";
+
 /** Build the inline SVG markup for a Lucide icon. Returns
  * ``null`` if the icon name is unknown (caller can decide to
  * skip rendering or show a fallback). */
 export function lucideIconSvg(name: string): string | null {
+  const component = LUCIDE_COMPONENTS[name];
+  if (component) {
+    let svg = LUCIDE_COMPONENT_SVG[name];
+    if (svg === undefined) {
+      svg = renderToStaticMarkup(createElement(component));
+      LUCIDE_COMPONENT_SVG[name] = svg;
+    }
+    return svg;
+  }
+
   const paths = LUCIDE_PATHS[name];
   if (!paths) return null;
   const inner = paths

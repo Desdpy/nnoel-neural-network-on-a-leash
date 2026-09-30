@@ -62,10 +62,11 @@ export interface PendingSatellite {
    * for website satellites. */
   new_tab?: boolean;
   /**
-   * Icon name resolved from ``config.toml`` or the plugin's
-   * frontend entry. ``undefined`` = no icon. Otherwise: a
-   * Lucide icon name (``"github"``, ``"clock"``, …) or a PNG/SVG
-   * filename (``"github.png"``, ``"logo.svg"``) served from
-   * ``/icons/``. */
+   * Icon name for the ball. Website satellites always get
+   * ``"globe"`` (see ``WEBSITE_ICON``); plugins and core entries
+   * supply their own. ``undefined`` = no icon. Otherwise: a
+   * Lucide icon name (``"clock"``, ``"settings"``, …) or a
+   * PNG/SVG filename (``"logo.png"``, ``"mark.svg"``) served
+   * from ``/icons/``. */
   icon?: string | null;
 }
