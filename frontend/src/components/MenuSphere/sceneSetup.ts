@@ -138,6 +138,7 @@ export function createScene(): {
  * satellites. */
 export function createCenterBall(world: THREE.Group): {
   group: THREE.Group;
+  shell: THREE.Mesh;
   gridMat: THREE.ShaderMaterial;
   ring: THREE.Points;
   pulseOrbit: THREE.Group;
@@ -164,7 +165,13 @@ export function createCenterBall(world: THREE.Group): {
     depthWrite: false,
   });
   const halo = new THREE.Sprite(haloMat);
-  halo.scale.set(2.2, 2.2, 1);
+  // Same fill-rate trade-off as the satellite halos in
+  // ``buildSatellite.ts``: this is a full additive quad with no
+  // depth write, so cost is the square of the scale. 1.4 still
+  // clears the widest element here (the 0.6-radius orbitA torus,
+  // 1.2 across) while cutting this sprite's fragments ~60% versus
+  // 2.2.
+  halo.scale.set(1.4, 1.4, 1);
   group.add(halo);
 
   const shellMat = createHologramMaterial({
@@ -299,6 +306,7 @@ export function createCenterBall(world: THREE.Group): {
 
   return {
     group,
+    shell,
     gridMat,
     ring,
     pulseOrbit,

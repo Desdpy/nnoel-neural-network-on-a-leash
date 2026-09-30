@@ -13,10 +13,17 @@
     text-align: center;
     padding: 2px 8px;
     border-radius: 999px;
-    background: rgba(13, 17, 23, 0.55);
+    /* No ``backdrop-filter`` here on purpose. CSS2DRenderer
+       rewrites this element's ``transform`` every frame, and a
+       ``backdrop-filter`` forces the compositor to re-snapshot and
+       re-blur the backdrop for every one of these labels on every
+       frame — 31 labels plus 31 icon pills, all animating at once.
+       That is more expensive than the entire WebGL scene. The
+       label sits on an already-dark, already-blurry background
+       (the neural-network canvas plus the additive glows), so an
+       opaque fill is visually near-identical. */
+    background: rgba(13, 17, 23, 0.82);
     border: 1px solid rgba(230, 237, 243, 0.12);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
     pointer-events: none;
     margin-top: 40px;
     white-space: nowrap;
@@ -29,6 +36,6 @@
     opacity: 1;
     font-size: 13px;
     padding: 3px 10px;
-    background: rgba(13, 17, 23, 0.75);
+    background: rgba(13, 17, 23, 0.92);
     border-color: rgba(230, 237, 243, 0.3);
 }

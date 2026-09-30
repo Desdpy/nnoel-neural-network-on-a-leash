@@ -14,7 +14,12 @@
     padding: 12px;
 }
 .menu-panel {
-    background: rgba(22, 27, 34, 0.92);
+    /* Fully opaque rather than translucent + ``backdrop-filter``.
+       The panel covers nearly the whole viewport, so a blur here
+       is a large-area backdrop pass; the ``.menu-panel-backdrop``
+       behind it already dims the menu, so a solid surface reads
+       the same and costs nothing. */
+    background: #161b22;
     border: 1px solid rgba(48, 54, 61, 0.7);
     border-radius: 8px;
     box-shadow:
@@ -25,8 +30,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
 }
 .menu-panel__header {
     display: flex;

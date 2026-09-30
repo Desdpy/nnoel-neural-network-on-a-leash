@@ -54,7 +54,17 @@ export function buildSatellite(
     depthWrite: false,
   });
   const halo = new THREE.Sprite(haloMat);
-  halo.scale.set(1.4, 1.4, 1);
+  // Scale trades glow radius against fill rate. The sprite is a
+  // full additive-blended quad, so its fragment cost is the square
+  // of this number: 1.4 → 656px sq each at 1080p/DPR 1.5, which
+  // across a full menu of satellites was ~2.9x full-screen
+  // overdraw on its own — the single largest cost in the scene.
+  // Nothing here writes depth, so the GPU can't reject the
+  // overdrawn pixels. 0.95 still fully contains the ball (shell
+  // radius 0.26) and the 0.3 dotted ring while cutting this
+  // layer's fragments by ~54%. Raise it if you want a softer,
+  // wider bloom at a direct frame-time cost.
+  halo.scale.set(0.95, 0.95, 1);
   group.add(halo);
 
   // Shell — colored "body" of the ball. Also the raycast

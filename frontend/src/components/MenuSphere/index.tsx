@@ -28,10 +28,6 @@ import "./menu-panel.css";
 import "./menu-center-icon.css";
 import "./menu-satellite-icon.css";
 
-/** Satellites whose depth fade falls below this are skipped
- * entirely by the render loop instead of being drawn at the
- * ``depthMul`` floor. See the cull in the loop below. */
-const CULL_DEPTH01 = 0.04;
 
 // 3D menu: a "menu" ball at the origin, surrounded by a sphere of
 // satellite balls (one per plugin). Drag-to-rotate orbits the
@@ -169,11 +165,16 @@ export function MenuSphere() {
     // --- Interaction wiring ---
     const dom = renderers.webgl.domElement;
     const cleanupDrag = setupDragToRotate(dom, world, camera);
-    const cleanupHover = setupHoverDetection(dom, camera, satellites);
+    // The center ball is passed as an occluder so a ray through the
+    // middle of the globe can't select a satellite hidden behind it.
+    const cleanupHover = setupHoverDetection(dom, camera, satellites, [
+      center.shell,
+    ]);
     const cleanupClick = setupClickDetection(
       dom,
       camera,
       satellites,
+      [center.shell],
       (id) => onSatelliteClickRef.current(id)
     );
 
@@ -283,25 +284,20 @@ export function MenuSphere() {
           Math.min(1, 1 - (dist - closestZ) / depthRange)
         );
 
-        // Cull the far pole of the globe. ``depthMul`` below floors
-        // at 0.1, so a fully-faded satellite still costs every draw
-        // call, uniform write and eased scale in this loop, plus a
-        // DOM style recalc for its label and icon. Anything inside
-        // the back cap is at most ~14% brightness and sits behind
-        // the centre ball, so skipping it is not visible. This only
-        // ever catches the few satellites in that cap (single-digit
-        // percent of the sphere), so treat it as a small win, not a
-        // fix for the frame budget.
-        if (depth01 < CULL_DEPTH01) {
-          s.group.visible = false;
-          s.labelObj.visible = false;
-          s.line.visible = false;
-          if (s.iconObj) s.iconObj.visible = false;
-          continue;
-        }
-
+        // No far-pole culling: every satellite stays rendered and
+        // interactive no matter where it sits on the globe, so
+        // nothing pops out of existence as you rotate. The
+        // ``depthMul`` floor below keeps back-of-globe satellites
+        // dim rather than invisible, which is enough to read as
+        // depth without them vanishing.
         const hoverBoost = s.hovered ? 0.25 : 0;
-        const depthMul = 0.1 + depth01 * 0.9;
+        // Floor the depth fade at 0.3 rather than 0.1. With no far-pole
+        // cull, this is the only thing keeping a back-of-globe
+        // satellite from looking absent: at 0.1 the far side of the
+        // globe rendered at ~6% halo opacity, which reads as missing
+        // rather than distant. 0.3 keeps a clear front-to-back
+        // gradient while every ball stays plainly present.
+        const depthMul = 0.3 + depth01 * 0.7;
 
         s.haloMat.opacity = (0.6 + hoverBoost) * depthMul;
         s.shellMat.uniforms.uOpacity.value = 0.08 * depthMul;
@@ -330,11 +326,23 @@ export function MenuSphere() {
         s.orbitB.scale.setScalar(easedOrbitBScale);
 
         s.lineMat.opacity = (s.hovered ? 0.95 : 0.35) * depthMul;
-        const depthOpacity = 0.4 + depth01 * 0.6;
+        // Label and icon fade on separate curves. The label is
+        // small, thin-stroked text, so it reads as receding well
+        // before it dims much; the icon is a 48px pill with a solid
+        // white glyph, which stayed looking equally strong at the
+        // back of the globe even at the label's opacity. The icon
+        // therefore uses the same floor as the ball's own
+        // ``depthMul`` (0.3) so it dims in step with the sphere it
+        // sits in, while the label keeps its higher 0.7 floor for
+        // legibility. Hovering lifts either one to full strength.
+        const depthOpacity = 0.7 + depth01 * 0.3;
         const labelOpacity = (s.hovered ? 1.0 : 0.95) * depthOpacity;
         s.labelEl.style.opacity = String(labelOpacity);
         if (s.iconEl) {
-          s.iconEl.style.opacity = String(labelOpacity);
+          const iconDepth = 0.3 + depth01 * 0.7;
+          s.iconEl.style.opacity = String(
+            (s.hovered ? 1.0 : 0.95) * iconDepth
+          );
         }
       }
 

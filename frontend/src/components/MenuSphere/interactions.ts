@@ -218,6 +218,7 @@ export function setupClickDetection(
   dom: HTMLElement,
   camera: THREE.PerspectiveCamera,
   satellites: Satellite[],
+  occluders: THREE.Object3D[],
   onClick: (id: string | null) => void
 ): () => void {
   const CLICK_THRESHOLD_PX = 5;
@@ -245,19 +246,18 @@ export function setupClickDetection(
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
 
-    // Only test shells that are actually on screen. The render
-    // loop hides satellites (panel open, or culled at the far pole
-    // of the globe) by setting ``group.visible = false``, and
-    // ``Raycaster`` does not consider ancestor visibility — so
-    // without this filter an invisible ball would still be
-    // hoverable and clickable.
+    // Test the visible shells plus ``occluders`` (the center ball)
+    // in one pass. ``Raycaster`` returns hits sorted by distance, so
+    // if an occluder is hit first the pointer is over the center
+    // ball and no satellite should be selected — that keeps the
+    // far side of the globe from being clickable *through* the
+    // middle now that those satellites are always drawn.
     const meshes = satellites
       .filter((s) => s.group.visible)
       .map((s) => s.shell);
-    const hits = raycaster.intersectObjects(meshes, false);
-    const clickedId = hits.length > 0
-      ? (hits[0].object.userData.id as string)
-      : null;
+    const hits = raycaster.intersectObjects([...meshes, ...occluders], false);
+    const first = hits.length > 0 ? hits[0].object : null;
+    const clickedId = first && first.userData.id ? (first.userData.id as string) : null;
     onClick(clickedId);
   };
 
@@ -283,7 +283,8 @@ export function setupClickDetection(
 export function setupHoverDetection(
   dom: HTMLElement,
   camera: THREE.PerspectiveCamera,
-  satellites: Satellite[]
+  satellites: Satellite[],
+  occluders: THREE.Object3D[]
 ): () => void {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -294,19 +295,15 @@ export function setupHoverDetection(
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
 
-    // Only test shells that are actually on screen. The render
-    // loop hides satellites (panel open, or culled at the far pole
-    // of the globe) by setting ``group.visible = false``, and
-    // ``Raycaster`` does not consider ancestor visibility — so
-    // without this filter an invisible ball would still be
-    // hoverable and clickable.
+    // Same one-pass occlusion test as ``setupClickDetection``: the
+    // nearest hit wins, and a center-ball hit means the pointer is
+    // over the hub, not a satellite behind it.
     const meshes = satellites
       .filter((s) => s.group.visible)
       .map((s) => s.shell);
-    const hits = raycaster.intersectObjects(meshes, false);
-    const hoveredId = hits.length > 0
-      ? (hits[0].object.userData.id as string)
-      : null;
+    const hits = raycaster.intersectObjects([...meshes, ...occluders], false);
+    const first = hits.length > 0 ? hits[0].object : null;
+    const hoveredId = first && first.userData.id ? (first.userData.id as string) : null;
 
     for (const s of satellites) {
       s.hovered = s.id === hoveredId;

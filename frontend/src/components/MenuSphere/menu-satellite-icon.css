@@ -11,10 +11,14 @@
     height: 48px;
     padding: 2px 8px;
     border-radius: 999px;
-    background: rgba(13, 17, 23, 0.55);
+    /* No ``backdrop-filter`` here on purpose — see the note in
+       ``menu-label.css``. These pills are the 31 most expensive
+       blurred elements in the app: CSS2DRenderer moves all of them
+       every frame, and each one re-blurs its backdrop every time.
+       A more opaque fill is visually equivalent against the dark
+       background. */
+    background: rgba(13, 17, 23, 0.82);
     border: 1px solid rgba(230, 237, 243, 0.12);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
     color: #ffffff;
     pointer-events: none;
     user-select: none;
@@ -29,7 +33,7 @@
     width: 56px;
     height: 56px;
     padding: 3px 9px;
-    background: rgba(13, 17, 23, 0.75);
+    background: rgba(13, 17, 23, 0.92);
     border-color: rgba(230, 237, 243, 0.3);
 }
 
@@ -43,12 +47,13 @@
     display: block;
 }
 /* PNG / SVG image inside the icon container. ``object-fit:
-   contain`` keeps the aspect ratio while filling the box; ``filter:
-   drop-shadow`` adds a faint glow so the image pops against
-   the bright cyan core. */
+   contain`` keeps the aspect ratio while filling the box. No
+   ``filter`` here: this element is repositioned every frame, and a
+   filter would re-run on all of them every frame for a 2px
+   shadow. The opaque pill behind it already separates the image
+   from the ball. */
 .menu-satellite-icon img {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
