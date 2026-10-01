@@ -1,74 +1,91 @@
-/* Panel overlay that opens when a satellite is clicked. The
-   backdrop covers the whole viewport with a darker tint so
-   the menu behind recedes; the panel itself sits centered
-   with a small margin, has rounded corners and a thin border
-   so it reads as a window *on top of* the background rather
-   than as the background itself. */
+/* Panel overlay that opens when a satellite is clicked. Every
+   panel is fullscreen: entries with ``new_tab = true`` are handed
+   to ``window.open`` and never reach this component, so anything
+   shown here is content the user chose to view in-app, and it
+   should get the whole viewport. The backdrop therefore carries
+   no inset and no tint — it exists only as the click-outside
+   target and stacking context. */
 .menu-panel-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: transparent;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 12px;
 }
 .menu-panel {
-    /* Fully opaque rather than translucent + ``backdrop-filter``.
-       The panel covers nearly the whole viewport, so a blur here
-       is a large-area backdrop pass; the ``.menu-panel-backdrop``
-       behind it already dims the menu, so a solid surface reads
-       the same and costs nothing. */
-    background: #161b22;
-    border: 1px solid rgba(48, 54, 61, 0.7);
-    border-radius: 8px;
-    box-shadow:
-        0 12px 48px rgba(0, 0, 0, 0.6),
-        0 0 0 1px rgba(255, 255, 255, 0.04);
-    width: calc(100% - 24px);
-    height: calc(100% - 24px);
+    /* Transparent so the animated menu background stays visible
+       through the top bar, the way the old page margin did. The
+       opaque surface lives on the body instead, so the bar reads
+       as a window onto the menu rather than a strip of the panel. */
+    background: transparent;
+    /* No inset, radius, border or shadow: the panel is the viewport.
+       ``position: relative`` keeps the iframe's containing block
+       scoped to the body. */
+    position: relative;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
+/* Top bar. A normal flex row again, so the body (and the iframe)
+   start below it rather than running underneath — but with a fully
+   transparent background and no border, so the menu scene shows
+   through the strip. Only the title and close button carry their
+   own rounded fields, which is what makes them legible against an
+   arbitrary page behind them. The hairline along the bottom edge
+   uses the same colour as the pill borders so the bar and its two
+   fields read as one set. */
 .menu-panel__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 10px;
-    border-bottom: 1px solid rgba(48, 54, 61, 0.5);
-    background: rgba(28, 33, 40, 0.35);
-    min-height: 24px;
+    gap: 8px;
+    padding: 8px 10px;
+    background: transparent;
+    border-bottom: 1px solid rgba(230, 237, 243, 0.12);
+    flex: 0 0 auto;
 }
 .menu-panel__title {
+    pointer-events: auto;
     font-size: 11px;
     font-weight: 500;
     color: rgba(230, 237, 243, 0.85);
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgba(13, 17, 23, 0.82);
+    border: 1px solid rgba(230, 237, 243, 0.12);
 }
 .menu-panel__close {
+    pointer-events: auto;
     appearance: none;
-    background: transparent;
-    border: 1px solid transparent;
+    background: rgba(13, 17, 23, 0.82);
+    border: 1px solid rgba(230, 237, 243, 0.12);
     color: #8b949e;
     font-size: 16px;
     line-height: 1;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
+    flex: 0 0 auto;
     transition: background 0.12s ease, color 0.12s ease;
 }
 .menu-panel__close:hover {
-    background: #30363d;
+    background: rgba(13, 17, 23, 0.92);
+    border-color: rgba(230, 237, 243, 0.3);
     color: #e6edf3;
 }
 .menu-panel__body {
+    /* The panel is transparent so the bar can show the menu through
+       it; the body carries the opaque surface instead. The iframe
+       paints its own background, so this only shows for plugin
+       components. */
+    background: #161b22;
     /* Padding for plugin components (gives them breathing room).
        The iframe overrides this to 0 with absolute positioning so
        it can still fill the panel-body area edge-to-edge. */
@@ -83,7 +100,8 @@
 }
 /* Iframe that loads a website URL inside the panel. We pull it
    out of the body's 20px padding so the embedded site fills
-   the full panel-body area. */
+   the full panel-body area. It starts below the top bar, leaving
+   the transparent strip above it showing the menu background. */
 .menu-panel__iframe {
     position: absolute;
     inset: 0;
