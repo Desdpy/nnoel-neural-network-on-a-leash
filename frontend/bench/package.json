@@ -1,0 +1,21 @@
+{
+  "name": "nnoel-frontend-bench",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Headless-Chromium performance and correctness probes for the nnoel menu view. Separate from the app's own package.json so puppeteer-core never lands in the app dependency tree.",
+  "scripts": {
+    "fps": "node fps.mjs",
+    "dpr": "node dpr.mjs",
+    "ablate": "node ablate.mjs",
+    "ops": "node ops.mjs",
+    "hover": "node hover.mjs",
+    "click": "node click.mjs",
+    "dom": "node dom.mjs",
+    "visual": "node visual.mjs",
+    "ab": "node run-ab.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

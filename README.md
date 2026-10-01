@@ -1,6 +1,14 @@
 # Nnoel - Neural network on a leash
 A local-first AI assistant that works on CPU only systems, whose every action is tightly controlled and audited by you. Everything the AI does in the background will be visualized in the web UI.
 
+> **Working on this repo?** Read [`AGENTS.md`](./AGENTS.md) first — it is the
+> canonical record of architecture, design decisions, gotchas and the
+> performance benchmarking method, and it is kept up to date as the work
+> happens. Parts of this README have fallen out of date (notably the stack
+> section: the LLM is an external llama.cpp server, not `llama-cpp-python`,
+> and the shipped model is Gemma 4 12B, not E2B), so do not treat this file as
+> authoritative for design decisions.
+
 ## Goals:
 - Similar goal as OpenClaw but less hands-off and more controlled active co-sessions with user. Doesn't take over full tasks but helps getting through them quicker
 - Helping with e-mails, messages, appointments etc.

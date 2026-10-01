@@ -26,3 +26,8 @@ docker-compose.prod.yml
 # from the build context so the image is barebones. Users supply
 # every plugin via the runtime volume mount (./plugins:/app/plugins).
 plugins/
+
+# --- frontend/bench: developer-only performance + correctness probes.
+# Never imported by the app (tsconfig excludes it, Vite only bundles what
+# src/ imports), so shipping it in the runtime image is pure dead weight.
+frontend/bench/
