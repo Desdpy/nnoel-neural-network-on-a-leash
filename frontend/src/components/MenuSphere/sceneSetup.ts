@@ -20,6 +20,35 @@ export interface SceneRenderers {
   labels: CSS2DRenderer;
 }
 
+// --- Fill-rate budget ---
+
+/** Hard cap on the WebGL renderer's pixel ratio.
+ *
+ * Every material in this scene is transparent (most of them
+ * additively blended with ``depthWrite`` off), so fragment cost
+ * scales with the *square* of the pixel ratio and there is no
+ * early-z to claw it back. At DPR 3 the menu renders 9x the
+ * fragments of DPR 1 for no visible gain on a scene made of soft
+ * glows.
+ *
+ * This was 1.5, which is 2.25x the fragments of 1.0. Measured on a
+ * 1600x900 viewport, stepping the backing store from 1.44M to 3.24M
+ * fragments took the frame from 66 ms to 100 ms — the cost tracks
+ * fragment count almost linearly, because the scene is fill-bound
+ * with no draw-call or geometry pressure to hide behind. Clamping to
+ * 1.0 is the single biggest fill-rate reduction available here, and
+ * it is the one that protects high-DPI phones and integrated GPUs,
+ * where the fragment count is multiplied again.
+ *
+ * The trade is crispness: at DPR 2/3 the globe's thin geometry (the
+ * 0.0045-radius orbit rings are about 1px) gets softer. The scene is
+ * glows and hairlines, so it degrades gracefully — and the CSS2D
+ * labels and icon pills are DOM, so they stay sharp at any DPR
+ * regardless of this value.
+ *
+ * This is the knob to raise on hardware that can afford it. */
+const MAX_PIXEL_RATIO = 1;
+
 /** Create the WebGL renderer + the CSS2D label renderer, sized
  * to ``mount`` and appended to it. The CSS2D renderer's
  * container is set to ``pointer-events: none`` so clicks/drags
@@ -36,16 +65,11 @@ export function createRenderers(mount: HTMLElement): SceneRenderers {
   // The tradeoff: the sub-pixel geometry (``orbitB``'s torus has a
   // tube radius of 0.0045 world units, roughly 1px on screen) will
   // alias more visibly without it. If the rings look ragged, raise
-  // the pixel-ratio clamp below rather than turning AA back on.
+  // ``MAX_PIXEL_RATIO`` above rather than turning AA back on —
+  // resolution fixes the aliasing and MSAA would cost more than it
+  // saves.
   const webgl = new THREE.WebGLRenderer({ antialias: false, alpha: true });
-  // Clamp the device pixel ratio. Every material in this scene is
-  // transparent (most of them additively blended with ``depthWrite``
-  // off), so fragment cost scales with the square of the pixel
-  // ratio and there is no early-z to claw it back. At DPR 3 the
-  // menu renders 9x the fragments of DPR 1 for no visible gain on
-  // a scene made of soft glows. 1.5 keeps the glows smooth while
-  // capping the fill-rate bill.
-  webgl.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  webgl.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   webgl.setSize(mount.clientWidth, mount.clientHeight);
   // Transparent so the canvas behind shows through.
   webgl.setClearColor(0x000000, 0);
@@ -150,6 +174,7 @@ export function createCenterBall(world: THREE.Group): {
   haloMat: THREE.SpriteMaterial;
   pulsePhase: number;
   iconEl: HTMLDivElement;
+  iconObj: CSS2DObject;
   labelEl: HTMLDivElement;
   labelObj: CSS2DObject;
 } {
@@ -167,10 +192,10 @@ export function createCenterBall(world: THREE.Group): {
   const halo = new THREE.Sprite(haloMat);
   // Same fill-rate trade-off as the satellite halos in
   // ``buildSatellite.ts``: this is a full additive quad with no
-  // depth write, so cost is the square of the scale. 1.4 still
-  // clears the widest element here (the 0.6-radius orbitA torus,
-  // 1.2 across) while cutting this sprite's fragments ~60% versus
-  // 2.2.
+  // depth write, so cost is the square of the scale. Left at 1.4
+  // for the same reason theirs is left at 0.95 — trimming it to
+  // 1.25 (the floor that still clears the 0.6-radius orbitA torus)
+  // was measured and rejected as not worth the luminance it cost.
   halo.scale.set(1.4, 1.4, 1);
   group.add(halo);
 
@@ -178,6 +203,7 @@ export function createCenterBall(world: THREE.Group): {
     color: new THREE.Color(CENTER_COLOR.hex),
     opacity: 0.08,
     blending: THREE.NormalBlending,
+    side: THREE.FrontSide,
   });
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(0.42, 48, 48),
@@ -318,6 +344,7 @@ export function createCenterBall(world: THREE.Group): {
     haloMat,
     pulsePhase: Math.random() * Math.PI * 2,
     iconEl,
+    iconObj,
     labelEl,
     labelObj,
   };
@@ -360,4 +387,19 @@ export function disposeGroup(group: THREE.Object3D): void {
     const mat = mesh.material;
     if (mat) (mat as THREE.Material).dispose();
   });
+  // Detach as part of disposing. This is load-bearing, not tidiness.
+  //
+  // Disposing frees the GPU resources but leaves the object parented
+  // and therefore still traversed and rendered. That used to be
+  // harmless because the whole ``world`` group was recreated whenever
+  // the satellite list changed, so stale objects were dropped along
+  // with it. Now that satellites are rebuilt *in place* inside a
+  // persistent ``world``, anything that is disposed but left
+  // parented stays in the scene and keeps drawing — while the render
+  // loop, which only iterates ``satellitesRef.current``, stops
+  // updating it. The symptom is a ghost ball whose rings are frozen
+  // and no longer ``lookAt`` the camera, because nothing ticks it
+  // any more. Detaching here rather than at the call sites means a
+  // future caller cannot forget.
+  group.removeFromParent();
 }

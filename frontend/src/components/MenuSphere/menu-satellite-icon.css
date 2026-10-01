@@ -12,7 +12,7 @@
     padding: 2px 8px;
     border-radius: 999px;
     /* No ``backdrop-filter`` here on purpose — see the note in
-       ``menu-label.css``. These pills are the 31 most expensive
+       ``menu-label.css``. These pills are the most expensive
        blurred elements in the app: CSS2DRenderer moves all of them
        every frame, and each one re-blurs its backdrop every time.
        A more opaque fill is visually equivalent against the dark
@@ -25,11 +25,25 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    /* Starting opacity only — the render loop drives the depth fade
+       from this element's inline ``style.opacity``, quantised to
+       1/20th steps, and that inline value wins over this and over
+       the ``--hovered`` rule below. See the note in
+       ``menu-label.css``. This is what a back-of-globe icon used to
+       sit at, so it is the right pre-first-fade value too. */
     opacity: 0.95;
-    transition: width 0.12s ease, height 0.12s ease, padding 0.12s ease;
+    /* Paint-only transitions only. ``width`` / ``height`` /
+       ``padding`` used to be listed here, and those are
+       layout-triggering: every frame of the transition forced a
+       reflow and a repaint of the pill and the SVG inside it, for
+       a size change that is a single discrete hover event.
+       ``opacity`` is excluded because JS writes it as the globe
+       turns, which would restart the transition every write. */
+    transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .menu-satellite-icon--hovered {
+    opacity: 1;
     width: 56px;
     height: 56px;
     padding: 3px 9px;

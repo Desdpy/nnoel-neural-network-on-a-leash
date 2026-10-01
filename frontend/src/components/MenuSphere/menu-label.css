@@ -17,7 +17,7 @@
        rewrites this element's ``transform`` every frame, and a
        ``backdrop-filter`` forces the compositor to re-snapshot and
        re-blur the backdrop for every one of these labels on every
-       frame — 31 labels plus 31 icon pills, all animating at once.
+       frame — 30 labels plus 30 icon pills, all animating at once.
        That is more expensive than the entire WebGL scene. The
        label sits on an already-dark, already-blurry background
        (the neural-network canvas plus the additive glows), so an
@@ -27,13 +27,30 @@
     pointer-events: none;
     margin-top: 40px;
     white-space: nowrap;
-    /* Keep the CSS2D positioning transform untouched while
-       allowing the label to ease its hover size. */
-    transition: opacity 0.12s ease, font-size 0.12s ease, padding 0.12s ease;
+    /* Starting opacity only. The render loop drives a depth fade
+       from this element's inline ``style.opacity`` on every step
+       change, which overrides this value (and the ``--hovered``
+       one below) for the whole time the menu is running. It is here
+       so the label is correct for the frame or two before the first
+       fade lands. */
     opacity: 0.85;
+    /* Paint-only transitions, and deliberately no ``opacity`` here.
+       The render loop rewrites this element's inline opacity as the
+       globe turns, so an armed opacity transition would be
+       re-triggered on every one of those writes — which is what
+       made the fade look laggy behind the balls. The JS side
+       quantises the fade to 1/20th steps instead, which is finer
+       than this transition's resolution anyway. ``font-size`` and
+       ``padding`` are out of the list for the same reason: they
+       force a re-layout and a glyph re-raster on every frame of
+       the transition, for a single discrete hover swap. */
+    transition: background 0.12s ease, border-color 0.12s ease;
 }
 .menu-label--hovered {
     opacity: 1;
+    /* Size steps up instantly rather than transitioning: a
+       transition here re-rasterizes the glyphs on every one of its
+       frames, and the hover swap is a single discrete event. */
     font-size: 13px;
     padding: 3px 10px;
     background: rgba(13, 17, 23, 0.92);

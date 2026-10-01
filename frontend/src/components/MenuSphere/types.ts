@@ -41,6 +41,16 @@ export interface Satellite {
   pulseSpeed: number;
   pulsePhase: number;
   hovered: boolean;
+  /**
+   * Last depth-fade step written to ``labelEl.style.opacity`` and
+   * ``iconEl.style.opacity``, quantised to ``OPACITY_STEPS``. The
+   * render loop recomputes the fade every frame but only touches the
+   * DOM when the step actually changes, so a drifting globe costs a
+   * handful of style writes per second instead of 60 per frame. See
+   * ``OPACITY_STEPS`` in ``index.tsx``.
+   */
+  labelOpacityStep: number;
+  iconOpacityStep: number;
 }
 
 /** The shape the satellite-distribution code produces before

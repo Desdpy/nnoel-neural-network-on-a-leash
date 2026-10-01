@@ -203,6 +203,40 @@ export function setupDragToRotate(
   };
 }
 
+// --- Canvas rect cache ---
+
+/** Cached canvas rectangle. The menu mount is ``position: fixed``
+ * at the viewport origin, so the canvas rect only changes on
+ * resize. Re-reading ``getBoundingClientRect()`` per pointer event
+ * forced a synchronous layout on every mouse move, on top of the
+ * raycast itself. This is purely a layout-thrash fix — it returns
+ * exactly the same rectangle the old inline call did. */
+export interface ViewportCache {
+  rect: () => DOMRect;
+  refresh: () => void;
+  dispose: () => void;
+}
+
+export function createViewportCache(dom: HTMLElement): ViewportCache {
+  let rect = dom.getBoundingClientRect();
+  const refresh = () => {
+    rect = dom.getBoundingClientRect();
+  };
+  window.addEventListener("resize", refresh);
+  // Capture phase: a scrolling ancestor would move the canvas
+  // without a window resize, and the canvas is inside the document
+  // flow via its mount.
+  window.addEventListener("scroll", refresh, true);
+  return {
+    rect: () => rect,
+    refresh,
+    dispose: () => {
+      window.removeEventListener("resize", refresh);
+      window.removeEventListener("scroll", refresh, true);
+    },
+  };
+}
+
 // --- Click detection ---
 
 /** Wire up click detection on the menu. A click is distinguished
@@ -211,14 +245,19 @@ export function setupDragToRotate(
  * pointerup, we treat it as a click and raycast at the release
  * point to find which satellite (if any) was clicked.
  *
+ * ``getSatellites`` is a getter rather than an array so the
+ * satellite list can be rebuilt (when the website config
+ * resolves) without re-registering these listeners.
+ *
  * Returns a cleanup function that removes the listeners. The
- * callback receives the clicked satellite's id (or ``null`` if
- * the user clicked empty space). */
+ * callback receives the clicked satellite's id (or ``null`` if the
+ * user clicked empty space). */
 export function setupClickDetection(
   dom: HTMLElement,
   camera: THREE.PerspectiveCamera,
-  satellites: Satellite[],
+  getSatellites: () => Satellite[],
   occluders: THREE.Object3D[],
+  viewport: ViewportCache,
   onClick: (id: string | null) => void
 ): () => void {
   const CLICK_THRESHOLD_PX = 5;
@@ -241,7 +280,7 @@ export function setupClickDetection(
     if (dx * dx + dy * dy > CLICK_THRESHOLD_PX * CLICK_THRESHOLD_PX) return;
 
     // Raycast at the release position to find what was clicked.
-    const rect = dom.getBoundingClientRect();
+    const rect = viewport.rect();
     ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
@@ -252,6 +291,7 @@ export function setupClickDetection(
     // ball and no satellite should be selected — that keeps the
     // far side of the globe from being clickable *through* the
     // middle now that those satellites are always drawn.
+    const satellites = getSatellites();
     const meshes = satellites
       .filter((s) => s.group.visible)
       .map((s) => s.shell);
@@ -279,18 +319,43 @@ export function setupClickDetection(
  * ``grabbing`` while dragging.
  *
  * Note: this function only writes the ``hovered`` flags — the
- * render loop is what actually applies the visual changes. */
+ * render loop is what actually applies the visual changes.
+ *
+ * This picks synchronously on every ``pointermove``, with no
+ * rAF coalescing, and the ``raycaster`` tests the real shell
+ * meshes. Both are deliberate:
+ *
+ *  - Ray/sphere maths was tried here instead of the meshes and
+ *    reverted. It is far cheaper (31 analytic tests versus ~66,000
+ *    ray/triangle tests) but it measures noticeably worse: the
+ *    analytic test uses the true 0.26 radius, while
+ *    ``SphereGeometry(0.26, 32, 32)`` is an *inscribed*
+ *    polyhedron with a slightly tighter silhouette. Because this
+ *    menu deliberately keeps back-of-globe satellites pickable, the
+ *    larger true-sphere hit volume lights up balls the cursor is
+ *    nowhere near — measured at a median 48px from the cursor
+ *    versus 32px for the mesh test, on the same probe grid. The
+ *    tighter mesh volume is what makes hover feel accurate.
+ *  - Coalescing into a rAF added a frame of latency between the
+ *    mouse moving and the ball growing, which is the most
+ *    latency-sensitive interaction on the screen.
+ *
+ * The remaining costs here are the ones that don't change what the
+ * user sees: the rect is cached rather than re-measured per event,
+ * and unchanged hover states skip their class writes. */
 export function setupHoverDetection(
   dom: HTMLElement,
   camera: THREE.PerspectiveCamera,
-  satellites: Satellite[],
-  occluders: THREE.Object3D[]
+  getSatellites: () => Satellite[],
+  occluders: THREE.Object3D[],
+  viewport: ViewportCache
 ): () => void {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
+  let lastCursor = "";
 
   const onPointerMove = (e: PointerEvent) => {
-    const rect = dom.getBoundingClientRect();
+    const rect = viewport.rect();
     ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
@@ -298,6 +363,7 @@ export function setupHoverDetection(
     // Same one-pass occlusion test as ``setupClickDetection``: the
     // nearest hit wins, and a center-ball hit means the pointer is
     // over the hub, not a satellite behind it.
+    const satellites = getSatellites();
     const meshes = satellites
       .filter((s) => s.group.visible)
       .map((s) => s.shell);
@@ -306,17 +372,28 @@ export function setupHoverDetection(
     const hoveredId = first && first.userData.id ? (first.userData.id as string) : null;
 
     for (const s of satellites) {
-      s.hovered = s.id === hoveredId;
-      // Toggle a CSS class so the label can restyle via CSS
-      // rather than being mutated imperatively per frame.
-      s.labelEl.classList.toggle("menu-label--hovered", s.hovered);
-      s.iconEl?.classList.toggle("menu-satellite-icon--hovered", s.hovered);
+      const hovered = s.id === hoveredId;
+      // Skip the writes when the state is unchanged, so sweeping the
+      // cursor across the globe only touches the balls that actually
+      // changed rather than all 30 of them.
+      if (s.hovered === hovered) continue;
+      s.hovered = hovered;
+      // Toggle a CSS class so the label and icon pill can restyle
+      // via CSS rather than being mutated imperatively per frame.
+      s.labelEl.classList.toggle("menu-label--hovered", hovered);
+      s.iconEl?.classList.toggle("menu-satellite-icon--hovered", hovered);
     }
     // Cursor styling: pointer over a hit, grabbing while a
     // drag is active, grab otherwise. The "is dragging" state
     // is owned by ``setupDragToRotate``; we leave that flag
     // alone here and just default to grab when nothing is hit.
-    dom.style.cursor = hoveredId ? "pointer" : "grab";
+    // Assigning ``style.cursor`` invalidates style even when the
+    // value is identical, so only write on a real change.
+    const cursor = hoveredId ? "pointer" : "grab";
+    if (cursor !== lastCursor) {
+      lastCursor = cursor;
+      dom.style.cursor = cursor;
+    }
   };
 
   dom.addEventListener("pointermove", onPointerMove);

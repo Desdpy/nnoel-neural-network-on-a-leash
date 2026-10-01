@@ -1,27 +1,23 @@
 import { NeuralNetworkBackground } from "./components/NeuralNetworkBackground";
 import { MenuSphere } from "./components/MenuSphere";
 import { Chat } from "./components/Chat";
-import "./App.css";
 
 export default function App() {
   return (
     <>
-      {/* Background: particle canvas at z = 0 */}
+      {/* Background: particle canvas at z = 0. This canvas is opaque
+          and already applies its own dim (see ``DIM`` in
+          ``NeuralNetworkBackground``), so nothing else is needed
+          behind the menu. It used to be followed by a full-viewport
+          ``rgba(0, 0, 0, 0.45)`` tint div, but that made the
+          compositor blend three full-screen surfaces every frame —
+          this canvas, the tint, and the transparent WebGL canvas —
+          to darken a background that only this canvas draws. */}
       <NeuralNetworkBackground />
-      {/* Dark tint overlay at z = 1 — a fixed full-viewport
-          semi-transparent black sheet that sits between the
-          neural network background and the menu. Dims the
-          background particles so the menu balls and labels
-          stand out more without changing the background's own
-          colors. Opacity is the only knob here — increase for a
-          more dramatic effect. */}
-      <div
-        aria-hidden="true"
-        className="bg-tint"
-      />
       {/* Foreground: 3D menu sphere at z = 2, transparent so the
-          background (now dimmed by the tint) shows through
-          between the balls. */}
+          background shows through between the balls. It sits above
+          the canvas on z-index alone; the canvas needs no z-index of
+          its own since it comes first in the document. */}
       <MenuSphere />
       <Chat />
     </>

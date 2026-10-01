@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { disposeGroup } from "./sceneSetup";
 import {
   GLOW_TEXTURE,
   makeDottedRingGeometry,
@@ -56,24 +57,34 @@ export function buildSatellite(
   const halo = new THREE.Sprite(haloMat);
   // Scale trades glow radius against fill rate. The sprite is a
   // full additive-blended quad, so its fragment cost is the square
-  // of this number: 1.4 → 656px sq each at 1080p/DPR 1.5, which
-  // across a full menu of satellites was ~2.9x full-screen
-  // overdraw on its own — the single largest cost in the scene.
-  // Nothing here writes depth, so the GPU can't reject the
-  // overdrawn pixels. 0.95 still fully contains the ball (shell
-  // radius 0.26) and the 0.3 dotted ring while cutting this
-  // layer's fragments by ~54%. Raise it if you want a softer,
-  // wider bloom at a direct frame-time cost.
+  // of this number, and across 30 satellites it is the single
+  // largest source of overdraw in the scene — nothing here writes
+  // depth, so the GPU can't reject the overdrawn pixels.
+  //
+  // 0.95 stays as-is. Trimming it to 0.88 (the floor that still
+  // clears the 0.39-radius orbitA torus) saves ~15% of this
+  // layer's fragments, but measured across the whole frame it cost
+  // 4.6% of mean luminance and 7.6% of the soft-glow area for a
+  // bright core that barely moved — and the pixel-ratio clamp
+  // already removes 55% of every fragment in the scene, which
+  // dominates this by a wide margin. Not worth the visible change.
+  // Raise it if you want a softer, wider bloom at a direct
+  // frame-time cost.
   halo.scale.set(0.95, 0.95, 1);
   group.add(halo);
 
   // Shell — colored "body" of the ball. Also the raycast
   // target so hover fires as soon as the cursor is on the
   // visible ball, not just on its tiny inner core.
+  //
+  // ``FrontSide``: see the note on ``side`` in
+  // ``hologramMaterial.ts``. The grid below keeps ``DoubleSide``
+  // so the far-side wires still describe the sphere.
   const shellMat = createHologramMaterial({
     color: new THREE.Color(color.hex),
     opacity: 0.08,
     blending: THREE.NormalBlending,
+    side: THREE.FrontSide,
   });
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(0.26, 32, 32),
@@ -282,5 +293,45 @@ export function buildSatellite(
     pulseSpeed: Math.random() * 1.4 + 0.6,
     pulsePhase: Math.random() * Math.PI * 2,
     hovered: false,
+    // Start one step below zero so the first rendered frame always
+    // writes an opacity, whatever the fade works out to.
+    labelOpacityStep: -1,
+    iconOpacityStep: -1,
   };
+}
+
+/** Release everything a satellite owns: GPU resources *and* its
+ * position in the scene graph and the CSS2D layer.
+ *
+ * Three things have to be detached, not just freed:
+ *
+ *  1. ``group`` and ``line`` — both are children of ``world`` rather
+ *     than of each other. ``disposeGroup`` detaches the group; the
+ *     line needs its own call. If either is left parented it keeps
+ *     rendering after the satellite leaves
+ *     ``satellitesRef.current``, and because the render loop only
+ *     iterates that array it stops being ticked — leaving a ghost
+ *     ball whose rings are frozen and no longer track the camera.
+ *  2. ``labelObj`` / ``iconObj`` — a ``CSS2DObject``'s ``<div>`` is
+ *     appended to the *renderer's* container, not to the
+ *     ``Object3D``, so removing the object does not remove the DOM
+ *     node. Without the explicit ``element.remove()`` a rebuild
+ *     stacks a fresh set of labels over the stale ones.
+ *
+ * The shared ``GLOW_TEXTURE`` is deliberately left alone:
+ * ``Material.dispose()`` releases the material's own GL program and
+ * uniforms but not the texture it samples, and every satellite
+ * reuses that one texture. */
+export function disposeSatellite(satellite: Satellite): void {
+  // Detach first so nothing can render mid-dispose.
+  satellite.group.removeFromParent();
+  satellite.line.removeFromParent();
+  satellite.labelObj.removeFromParent();
+  satellite.iconObj?.removeFromParent();
+
+  disposeGroup(satellite.group);
+  satellite.line.geometry.dispose();
+  satellite.lineMat.dispose();
+  satellite.labelObj.element.remove();
+  satellite.iconObj?.element.remove();
 }

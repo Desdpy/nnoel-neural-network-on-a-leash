@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { coreEntries, CORE_COLOR } from "../Settings/registry";
 import { pluginUis } from "../../plugins/registry";
 import { fetchConfig } from "../../api/config";
-import { buildSatellite } from "./buildSatellite";
+import { buildSatellite, disposeSatellite } from "./buildSatellite";
 import { distributeSatellites } from "./distributeSatellites";
 import { ORBIT_RADIUS } from "./constants";
 import {
@@ -14,11 +14,33 @@ import {
   makeResizeHandler,
 } from "./sceneSetup";
 import {
+  createViewportCache,
   setupClickDetection,
   setupDragToRotate,
   setupHoverDetection,
 } from "./interactions";
 import type { Satellite } from "./types";
+
+/** Granularity of the CSS2D label / icon-pill depth fade, in steps
+ * across a 0-1 opacity range.
+ *
+ * These two elements fade with depth, and the fade has to be
+ * recomputed every frame because the globe rotates. Writing
+ * ``style.opacity`` on all 60 nodes unconditionally was the single
+ * most expensive thing the menu did — 60 style mutations plus 60
+ * ``String()`` allocations per frame, on a layer sitting over an
+ * animating WebGL canvas, and it also meant an armed
+ * ``transition: opacity`` was being restarted 60 times a frame.
+ *
+ * So the value is quantised to 1/20th and the previous step is
+ * remembered per satellite. The fade still tracks depth continuously
+ * as far as the eye can tell (5% opacity steps are invisible on a
+ * 12px label), but the DOM is only touched when the fade actually
+ * moves a step. Because the globe drifts at a few degrees per second
+ * even when idle, that turns ~3,600 writes per second into a handful.
+ * A fast drag still writes more, but only for the balls that crossed
+ * a step boundary that frame. */
+const OPACITY_STEPS = 20;
 
 // Per-component styles. ``index.css`` already imports these
 // transitively (so Vite bundles them), but importing from here
@@ -106,19 +128,22 @@ export function MenuSphere() {
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
 
-  // Mirror websites into a ref too — the satellite-distribution
-  // function runs once inside ``useEffect`` and would otherwise
-  // miss later updates. Re-running the effect on every website
-  // change is overkill; building satellites on demand as plugins
-  // are added is the simpler pattern. For now websites are
-  // supported at mount time.
-  const websitesRef = useRef(websites);
-  websitesRef.current = websites;
+  // The satellite list lives in a ref, not in state, because the
+  // render loop and the pointer handlers read it 60+ times a
+  // second and none of them should re-subscribe when it changes.
+  // The scene effect below creates the renderer exactly once and
+  // never tears it down; the satellite effect swaps the *contents*
+  // of this array in place when the website config resolves.
+  const satellitesRef = useRef<Satellite[]>([]);
+  // Read by the satellite effect, which runs after the scene
+  // effect on mount and again whenever ``websites`` changes.
+  const worldRef = useRef<THREE.Group | null>(null);
 
   // Close the panel when the user clicks the dimmed backdrop or
   // the × button.
   const onClosePanel = () => setSelectedId(null);
 
+  // --- Scene lifetime: mount once, never rebuilt ---
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
@@ -126,55 +151,34 @@ export function MenuSphere() {
     // --- Scene, camera, renderers ---
     const renderers = createRenderers(mount);
     const { scene, camera, world } = createScene();
+    worldRef.current = world;
 
     // --- Center "menu" ball ---
     const center = createCenterBall(world);
 
-    // --- Satellites (plugins + core entries + websites) ---
-    // ``websitesRef.current`` is read instead of the React state
-    // because ``useEffect`` only sees the initial value otherwise.
-    // The ref is updated on every render, so the first effect
-    // run gets the empty list and a re-mount (or a manual refresh)
-    // would be needed to pick up later website additions.
-    const pending = distributeSatellites(
-      pluginUis,
-      coreEntries,
-      websitesRef.current,
-      CORE_COLOR
-    );
-    const satellites: Satellite[] = pending.map((p) => {
-      const worldPos = p.position.clone().multiplyScalar(ORBIT_RADIUS);
-      const sat = buildSatellite(
-        world,
-        p.id,
-        p.label,
-        worldPos,
-        p.color,
-        p.icon
-      );
-      if (p.scale !== 1) sat.group.scale.setScalar(p.scale);
-      return sat;
-    });
-
-    // eslint-disable-next-line no-console
-    console.log(
-      "[MenuSphere] satellites:",
-      satellites.map((s) => ({ id: s.id, pos: s.group.position.toArray() }))
-    );
-
     // --- Interaction wiring ---
+    // The satellites are read through a getter rather than
+    // captured, so the list can be swapped later without
+    // re-registering a single listener.
+    const getSatellites = () => satellitesRef.current;
     const dom = renderers.webgl.domElement;
+    const viewport = createViewportCache(dom);
     const cleanupDrag = setupDragToRotate(dom, world, camera);
     // The center ball is passed as an occluder so a ray through the
     // middle of the globe can't select a satellite hidden behind it.
-    const cleanupHover = setupHoverDetection(dom, camera, satellites, [
-      center.shell,
-    ]);
+    const cleanupHover = setupHoverDetection(
+      dom,
+      camera,
+      getSatellites,
+      [center.shell],
+      viewport
+    );
     const cleanupClick = setupClickDetection(
       dom,
       camera,
-      satellites,
+      getSatellites,
       [center.shell],
+      viewport,
       (id) => onSatelliteClickRef.current(id)
     );
 
@@ -187,6 +191,10 @@ export function MenuSphere() {
     // True once we have drawn a frame with everything hidden for
     // the open panel. See the early return in ``render``.
     let panelCleared = false;
+    // Reused every frame so the loop allocates nothing. It used to
+    // be constructed inside ``render``, which meant 60 short-lived
+    // Vector3s per second for the GC to collect.
+    const worldPos = new THREE.Vector3();
     const render = () => {
       const panelOpen = selectedIdRef.current !== null;
 
@@ -233,6 +241,9 @@ export function MenuSphere() {
         center.orbitMatA.opacity = 0.59;
         center.orbitMatB.opacity = 0.42;
         center.pulseMat.opacity = 0.85;
+        // The center label doesn't move with depth — it's always
+        // dead centre — so this is written once per frame rather than
+        // gated on a step change.
         center.labelEl.style.opacity = "0.95";
       }
 
@@ -245,11 +256,11 @@ export function MenuSphere() {
       // portrait viewport the camera sits further back and the
       // formula clamps every satellite to ``depth01 = 1`` (or
       // worse, kills the back-to-front gradient entirely).
+      const satellites = satellitesRef.current;
       const cameraZ = camera.position.z;
       const ORBIT_R = 2.2; // keep in sync with ``constants.ts``
       const depthRange = 2 * ORBIT_R;
       const closestZ = cameraZ - ORBIT_R; // satellite between camera and origin
-      const worldPos = new THREE.Vector3();
       for (const s of satellites) {
         // ``group.visible = false`` is the cheapest way to hide
         // a Three.js subtree — it skips traversal during render
@@ -299,6 +310,8 @@ export function MenuSphere() {
         // gradient while every ball stays plainly present.
         const depthMul = 0.3 + depth01 * 0.7;
 
+        // Everything below is a GPU-side uniform, written straight to
+        // the material — no DOM, no style invalidation.
         s.haloMat.opacity = (0.6 + hoverBoost) * depthMul;
         s.shellMat.uniforms.uOpacity.value = 0.08 * depthMul;
         s.gridMat.uniforms.uOpacity.value = 0.27 * depthMul;
@@ -326,23 +339,33 @@ export function MenuSphere() {
         s.orbitB.scale.setScalar(easedOrbitBScale);
 
         s.lineMat.opacity = (s.hovered ? 0.95 : 0.35) * depthMul;
-        // Label and icon fade on separate curves. The label is
-        // small, thin-stroked text, so it reads as receding well
-        // before it dims much; the icon is a 48px pill with a solid
-        // white glyph, which stayed looking equally strong at the
-        // back of the globe even at the label's opacity. The icon
-        // therefore uses the same floor as the ball's own
-        // ``depthMul`` (0.3) so it dims in step with the sphere it
-        // sits in, while the label keeps its higher 0.7 floor for
+
+        // The DOM label and icon pill fade with depth too, on
+        // separate curves: the label is small thin-stroked text that
+        // reads as receding well before it dims much, while the icon
+        // is a 48px pill with a solid white glyph that stayed looking
+        // equally strong at the back of the globe even at the label's
+        // opacity. So the icon uses the same 0.3 floor as the ball's
+        // own ``depthMul`` and dims in step with the sphere it sits
+        // in, while the label keeps a higher 0.7 floor for
         // legibility. Hovering lifts either one to full strength.
         const depthOpacity = 0.7 + depth01 * 0.3;
-        const labelOpacity = (s.hovered ? 1.0 : 0.95) * depthOpacity;
-        s.labelEl.style.opacity = String(labelOpacity);
+        const labelStep = Math.round(
+          (s.hovered ? 1.0 : 0.95) * depthOpacity * OPACITY_STEPS
+        );
+        if (labelStep !== s.labelOpacityStep) {
+          s.labelOpacityStep = labelStep;
+          s.labelEl.style.opacity = String(labelStep / OPACITY_STEPS);
+        }
         if (s.iconEl) {
           const iconDepth = 0.3 + depth01 * 0.7;
-          s.iconEl.style.opacity = String(
-            (s.hovered ? 1.0 : 0.95) * iconDepth
+          const iconStep = Math.round(
+            (s.hovered ? 1.0 : 0.95) * iconDepth * OPACITY_STEPS
           );
+          if (iconStep !== s.iconOpacityStep) {
+            s.iconOpacityStep = iconStep;
+            s.iconEl.style.opacity = String(iconStep / OPACITY_STEPS);
+          }
         }
       }
 
@@ -350,6 +373,11 @@ export function MenuSphere() {
       // positions. Without this, ``labels.render`` would see
       // ``matrixWorld`` from the previous frame's WebGL pass,
       // making labels lag one frame behind the WebGL canvas.
+      //
+      // This is the only traversal needed: the per-satellite
+      // ``lookAt`` / ``scale`` writes above mark the subtrees
+      // dirty, and ``webgl.render`` would otherwise walk the graph
+      // itself immediately afterwards.
       scene.updateMatrixWorld(true);
       renderers.labels.render(scene, camera);
       renderers.webgl.render(scene, camera);
@@ -364,13 +392,21 @@ export function MenuSphere() {
       cleanupDrag();
       cleanupHover();
       cleanupClick();
+      viewport.dispose();
 
       disposeGroup(center.group);
-      for (const s of satellites) {
-        disposeGroup(s.group);
-        s.line.geometry.dispose();
-        s.lineMat.dispose();
-      }
+      // The center label is parented to ``world``, not to
+      // ``center.group``, so it needs detaching separately. Neither
+      // CSS2DObject's ``<div>`` is a child of the Three.js object —
+      // ``CSS2DRenderer`` appends it to its own container — so both
+      // have to be removed by hand or they leak into the label layer.
+      center.labelObj.removeFromParent();
+      center.labelObj.element.remove();
+      center.iconObj.element.remove();
+      for (const s of satellitesRef.current) disposeSatellite(s);
+      satellitesRef.current = [];
+      worldRef.current = null;
+
       renderers.webgl.dispose();
       if (mount.contains(renderers.webgl.domElement)) {
         mount.removeChild(renderers.webgl.domElement);
@@ -379,10 +415,56 @@ export function MenuSphere() {
         mount.removeChild(renderers.labels.domElement);
       }
     };
-    // ``websites`` is in the deps list so the effect re-runs when
-    // the ``/config`` fetch resolves. Without this, satellites
-    // would be built with the initial empty websites list and the
-    // new website balls wouldn't appear.
+  }, []);
+
+  // --- Satellite lifetime: rebuilt when the config changes ---
+  //
+  // This used to be part of the scene effect, which meant the
+  // ``/config`` fetch resolving tore down the WebGL context, the
+  // camera, the center ball, every listener and all 30 satellites,
+  // then rebuilt every one of them — a multi-hundred-millisecond
+  // freeze right as the menu appeared. Now only the satellites are
+  // rebuilt, in place, inside the live scene.
+  //
+  // The full set is rebuilt rather than diffed because
+  // ``distributeSatellites`` lays satellites out on a Fibonacci
+  // lattice sized to the *total* entry count, so adding the
+  // website entries reshuffles every existing ball's position. A
+  // diff would have to reposition them all anyway; rebuilding is
+  // the same amount of work without the bookkeeping.
+  useEffect(() => {
+    const world = worldRef.current;
+    if (!world) return;
+
+    for (const s of satellitesRef.current) disposeSatellite(s);
+    satellitesRef.current = [];
+
+    const pending = distributeSatellites(
+      pluginUis,
+      coreEntries,
+      websites,
+      CORE_COLOR
+    );
+    const satellites: Satellite[] = pending.map((p) => {
+      const worldPos = p.position.clone().multiplyScalar(ORBIT_RADIUS);
+      const sat = buildSatellite(
+        world,
+        p.id,
+        p.label,
+        worldPos,
+        p.color,
+        p.icon
+      );
+      if (p.scale !== 1) sat.group.scale.setScalar(p.scale);
+      return sat;
+    });
+    satellitesRef.current = satellites;
+
+    // eslint-disable-next-line no-console
+    console.log(
+      "[MenuSphere] satellites:",
+      satellites.map((s) => ({ id: s.id, pos: s.group.position.toArray() }))
+    );
   }, [websites]);
 
   // Find the selected entry by id across all three sources

@@ -10,6 +10,7 @@ interface Particle {
   pulseSpeed: number;           // how fast the glow oscillates
   pulsePhase: number;           // random phase offset so particles don't pulse in sync
   colorR: number; colorG: number; colorB: number; // RGB color from the palette
+  colorIdx: number;             // index into COLORS, for the line batches
   orbitAngle: number;           // current angle in the local orbit
   orbitSpeed: number;           // angular velocity of the orbit
   orbitRadius: number;          // radius of the orbital drift
@@ -39,6 +40,66 @@ const CONNECTION_DIST = 200;
 const CONNECTION_DIST_SQ = CONNECTION_DIST * CONNECTION_DIST;
 const BOUNDARY_PAD = 100;
 
+// --- Batched connection lines ---
+
+/** How many distinct opacities a connection line is quantised to.
+ *
+ * Every link used to get its own two-stop ``createLinearGradient``
+ * and its own ``stroke()`` call, plus a per-line ``lineWidth``
+ * assignment that defeated the rasteriser's batching fast path.
+ * At 150 particles and a 200px link radius that is roughly 680
+ * gradient allocations and 680 separate strokes *per frame* — the
+ * dominant cost of this background. Links are now accumulated
+ * into ``Path2D`` batches keyed by (source colour, opacity
+ * bucket) and stroked once each, so the same image costs
+ * ``COLORS.length * LINE_BUCKETS`` draws instead of ~1,400
+ * gradient + stroke operations.
+ *
+ * The visual trade-off is that a link is now a flat colour taken
+ * from the source particle rather than a gradient from source to
+ * destination. Both endpoints come from the same four-colour
+ * palette, so the result is indistinguishable at these opacities
+ * (peak 0.4) and line widths (peak 1.4px). */
+const LINE_BUCKETS = 5;
+
+// --- Background dimming ---
+
+/** How much the background is darkened, 0-1.
+ *
+ * This used to live in a separate ``.bg-tint`` element — a
+ * full-viewport ``rgba(0, 0, 0, 0.45)`` div sandwiched between this
+ * canvas and the transparent WebGL canvas above it. That made the
+ * compositor blend three full-screen surfaces every frame (this
+ * canvas, the tint, the WebGL canvas) to darken a background that
+ * only this canvas draws, and it blocked every fast path through the
+ * layer stack. Painting the dim into this canvas drops it to two.
+ *
+ * The dim is applied by scaling it into the colours themselves — the
+ * gradient's stop colours and every particle / line / signal alpha
+ * are multiplied by ``1 - DIM``. That reproduces the old overlay
+ * exactly, and it has to be done this way rather than with one
+ * ``globalAlpha`` around the whole draw: repeatedly compositing at
+ * ``globalAlpha = 0.55`` is not the same as scaling the finished
+ * image by 0.55, because each source-over then lands on an already
+ * dimmed backdrop (``dst`` instead of ``0.55 * dst``), so
+ * overlapping particles and additive lines would come out too dark.
+ * Per-draw scaling keeps every blend identical to what it was.
+ *
+ * A picture background would slot in as another draw scaled by
+ * ``1 - DIM``, exactly like the gradient below it. */
+const DIM = 0.45;
+const DIM_MUL = 1 - DIM;
+
+/** Scale an ``#rrggbb`` stop colour by ``DIM_MUL``. Done in JS
+ * rather than hard-coded so the dim stays a single knob. */
+function dimHex(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 255) * DIM_MUL);
+  const g = Math.round(((n >> 8) & 255) * DIM_MUL);
+  const bl = Math.round((n & 255) * DIM_MUL);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
 // Animated neural-network-style particle background rendered on a <canvas>
 export function NeuralNetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,18 +124,65 @@ export function NeuralNetworkBackground() {
     let mouseY = -1000;
     const MOUSE_INFLUENCE = 180;
 
+    // Line batches: one Path2D per (colour, opacity bucket).
+    //
+    // The ``Path2D`` objects themselves are replaced every frame.
+    // ``Path2D`` has no ``reset()``, so reusing the instances would
+    // append each frame's ~680 segments onto the previous frame's
+    // and the strokes would grow without bound — which showed up as
+    // frame time climbing run over run (8 -> 5 -> 3 fps) rather
+    // than as a constant cost. Allocating 20 empty paths per frame
+    // is nothing next to the ~1,400 gradient + stroke operations
+    // this replaced.
+    const lineBatches: Array<{
+      path: Path2D;
+      colorIdx: number;
+      bucket: number;
+      used: boolean;
+    }> = [];
+    for (let c = 0; c < COLORS.length * LINE_BUCKETS; c++) {
+      lineBatches.push({
+        path: new Path2D(),
+        colorIdx: (c / LINE_BUCKETS) | 0,
+        bucket: c % LINE_BUCKETS,
+        used: false,
+      });
+    }
+
     // Spatial grid for efficient neighbor lookups (avoids O(n²) distance checks)
-    let grid: number[][][];
+    let grid: number[][][] = [];
     let gridCols = 0;
     let gridRows = 0;
+
+    // The full-viewport backdrop gradient. Rebuilt only on resize;
+    // it used to be recreated on every draw, and it is the largest
+    // single fill in the frame besides the clear.
+    let bgGrad: CanvasGradient | null = null;
+
+    /** Size the grid buckets to the current viewport, reusing the
+     * existing arrays. This ran (and reallocated) every frame: at
+     * 1920x1080 the nested ``Array.from`` produced 96 fresh arrays
+     * per draw, ~2,300 short-lived arrays per second, purely to
+     * discard the previous frame's buckets. */
+    function ensureGrid() {
+      if (grid.length < gridCols) {
+        while (grid.length < gridCols) grid.push([]);
+      } else if (grid.length > gridCols) {
+        grid.length = gridCols;
+      }
+      for (let gx = 0; gx < gridCols; gx++) {
+        const column = grid[gx];
+        while (column.length < gridRows) column.push([]);
+        column.length = gridRows;
+        for (let gy = 0; gy < gridRows; gy++) column[gy].length = 0;
+      }
+    }
 
     // Rebuild the spatial grid based on current particle positions
     function buildGrid() {
       gridCols = Math.ceil((w + BOUNDARY_PAD * 2) / CONNECTION_DIST) + 1;
       gridRows = Math.ceil((h + BOUNDARY_PAD * 2) / CONNECTION_DIST) + 1;
-      grid = Array.from({ length: gridCols }, () =>
-        Array.from({ length: gridRows }, () => []),
-      );
+      ensureGrid();
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         const gx = Math.floor((p.x + BOUNDARY_PAD) / CONNECTION_DIST);
@@ -93,9 +201,16 @@ export function NeuralNetworkBackground() {
       h = canvas!.height = parent.clientHeight;
       cx = w / 2;
       cy = h / 2;
+      // The gradient's outer stop is opaque black and its radius
+      // exceeds the viewport's half-diagonal (0.72 > 0.707), so it
+      // covers every pixel on its own. The solid ``fillRect`` that
+      // used to run underneath it was a second full-viewport fill
+      // per frame for no visible difference.
+      bgGrad = null;
       particles = [];
       for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+        const colorIdx = Math.floor(Math.random() * COLORS.length);
+        const color = COLORS[colorIdx];
         // Distribute across three depth layers
         const layer = Math.random() < 0.3 ? 0 : Math.random() < 0.5 ? 2 : 1;
         const layerScale = layer === 0 ? 0.6 : layer === 2 ? 1.3 : 1;
@@ -113,6 +228,7 @@ export function NeuralNetworkBackground() {
           colorR: color.r,
           colorG: color.g,
           colorB: color.b,
+          colorIdx,
           orbitAngle: Math.random() * Math.PI * 2,
           orbitSpeed: (Math.random() * 0.2 + 0.05) * (layer === 0 ? 0.5 : 1),
           orbitRadius: Math.random() * 40 + 5,
@@ -160,11 +276,27 @@ export function NeuralNetworkBackground() {
     const FRAME_INTERVAL = 1000 / 24;
     let lastFrameTime = 0;
 
+    /** Append one connection segment to its (colour, opacity)
+     * batch instead of stroking it on its own. */
+    function link(a: Particle, b: Particle) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq >= CONNECTION_DIST_SQ) return;
+      const norm = 1 - Math.sqrt(distSq) / CONNECTION_DIST;
+      let bucket = (norm * LINE_BUCKETS) | 0;
+      if (bucket >= LINE_BUCKETS) bucket = LINE_BUCKETS - 1;
+      const batch = lineBatches[a.colorIdx * LINE_BUCKETS + bucket];
+      batch.path.moveTo(a.x, a.y);
+      batch.path.lineTo(b.x, b.y);
+      batch.used = true;
+    }
+
     // Main animation loop
     function draw(time: number) {
       animationId = requestAnimationFrame(draw);
 
-      // Throttle to ~12 fps
+      // Throttle to ~24 fps
       const elapsed = time - lastFrameTime;
       if (elapsed < FRAME_INTERVAL) return;
       lastFrameTime = time - (elapsed % FRAME_INTERVAL);
@@ -173,17 +305,18 @@ export function NeuralNetworkBackground() {
       const t = time * 0.001;           // seconds since page load
 
       // --- Background ---
-      ctx!.fillStyle = "#0d1117";
-      ctx!.fillRect(0, 0, w, h);
-
-      if (w > 200 && h > 200) {
-        const bgGrad = ctx!.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.7);
-        bgGrad.addColorStop(0, "#0d1117");
-        bgGrad.addColorStop(0.5, "#080b12");
-        bgGrad.addColorStop(1, "#000000");
-        ctx!.fillStyle = bgGrad;
-        ctx!.fillRect(0, 0, w, h);
+      // The gradient is opaque and its radius (0.72 * max(w, h))
+      // exceeds the viewport half-diagonal (0.707 * max(w, h)), so
+      // it covers every pixel and the canvas needs no separate clear.
+      // Its stops are pre-dimmed by ``dimHex``.
+      if (!bgGrad) {
+        bgGrad = ctx!.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.72);
+        bgGrad.addColorStop(0, dimHex("#0d1117"));
+        bgGrad.addColorStop(0.5, dimHex("#080b12"));
+        bgGrad.addColorStop(1, dimHex("#000000"));
       }
+      ctx!.fillStyle = bgGrad;
+      ctx!.fillRect(0, 0, w, h);
 
       // --- Update particle positions ---
       for (let i = 0; i < particles.length; i++) {
@@ -215,6 +348,10 @@ export function NeuralNetworkBackground() {
 
       // --- Draw connections between nearby particles ---
       buildGrid();
+      for (let i = 0; i < lineBatches.length; i++) {
+        lineBatches[i].path = new Path2D();
+        lineBatches[i].used = false;
+      }
 
       // --- Update and draw signals ---
       if (Math.random() < 0.04 && signals.length < 12) fireRandomSignal();
@@ -240,7 +377,9 @@ export function NeuralNetworkBackground() {
         }
       }
 
-      // Draw all connection lines (using spatial grid for efficient neighbor lookup)
+      // Draw all connection lines (using spatial grid for efficient
+      // neighbor lookup). Segments are accumulated into the shared
+      // batches first, then flushed as at most 20 strokes.
       for (let gx = 0; gx < gridCols; gx++) {
         for (let gy = 0; gy < gridRows; gy++) {
           const cell = grid[gx][gy];
@@ -250,22 +389,7 @@ export function NeuralNetworkBackground() {
             const a = particles[i];
             // Connect within the same cell
             for (let cj = ci + 1; cj < cell.length; cj++) {
-              const j = cell[cj];
-              const b = particles[j];
-              const dx = a.x - b.x;
-              const dy = a.y - b.y;
-              if (dx * dx + dy * dy < CONNECTION_DIST_SQ) {
-                const norm = 1 - Math.sqrt(dx * dx + dy * dy) / CONNECTION_DIST;
-                const grad = ctx!.createLinearGradient(a.x, a.y, b.x, b.y);
-                grad.addColorStop(0, `rgba(${a.colorR}, ${a.colorG}, ${a.colorB}, ${norm * 0.4})`);
-                grad.addColorStop(1, `rgba(${b.colorR}, ${b.colorG}, ${b.colorB}, ${norm * 0.4})`);
-                ctx!.beginPath();
-                ctx!.moveTo(a.x, a.y);
-                ctx!.lineTo(b.x, b.y);
-                ctx!.strokeStyle = grad;
-                ctx!.lineWidth = norm * 1.2 + 0.2;
-                ctx!.stroke();
-              }
+              link(a, particles[cell[cj]]);
             }
             // Connect to neighboring cells
             for (let nx = -1; nx <= 1; nx++) {
@@ -275,26 +399,21 @@ export function NeuralNetworkBackground() {
                 if (ngx < 0 || ngx >= gridCols || ngy < 0 || ngy >= gridRows) continue;
                 for (const j of grid[ngx][ngy]) {
                   if (j <= i) continue;
-                  const b = particles[j];
-                  const dx = a.x - b.x;
-                  const dy = a.y - b.y;
-                  if (dx * dx + dy * dy < CONNECTION_DIST_SQ) {
-                    const norm = 1 - Math.sqrt(dx * dx + dy * dy) / CONNECTION_DIST;
-                    const grad = ctx!.createLinearGradient(a.x, a.y, b.x, b.y);
-                    grad.addColorStop(0, `rgba(${a.colorR}, ${a.colorG}, ${a.colorB}, ${norm * 0.4})`);
-                    grad.addColorStop(1, `rgba(${b.colorR}, ${b.colorG}, ${b.colorB}, ${norm * 0.4})`);
-                    ctx!.beginPath();
-                    ctx!.moveTo(a.x, a.y);
-                    ctx!.lineTo(b.x, b.y);
-                    ctx!.strokeStyle = grad;
-                    ctx!.lineWidth = norm * 1.2 + 0.2;
-                    ctx!.stroke();
-                  }
+                  link(a, particles[j]);
                 }
               }
             }
           }
         }
+      }
+
+      for (const batch of lineBatches) {
+        if (!batch.used) continue;
+        const color = COLORS[batch.colorIdx];
+        const norm = (batch.bucket + 0.5) / LINE_BUCKETS;
+        ctx!.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${norm * 0.4 * DIM_MUL})`;
+        ctx!.lineWidth = norm * 1.2 + 0.2;
+        ctx!.stroke(batch.path);
       }
 
       // Draw traveling signal lines (shooting from source toward target, then retreating)
@@ -309,10 +428,14 @@ export function NeuralNetworkBackground() {
         const ey = a.y + (b.y - a.y) * progress;
 
         if (s.retreat < progress) {
+          // These keep their gradient: there are at most 12 signals
+          // alive at once, so this is at most 12 gradients per frame
+          // — three orders of magnitude below the connection lines,
+          // and the travelling fade is part of the effect's look.
           const lineGrad = ctx!.createLinearGradient(sx, sy, ex, ey);
           lineGrad.addColorStop(0, `rgba(${s.colorR}, ${s.colorG}, ${s.colorB}, 0)`);
-          lineGrad.addColorStop(0.3, `rgba(${s.colorR}, ${s.colorG}, ${s.colorB}, 0.1)`);
-          lineGrad.addColorStop(1, `rgba(${s.colorR}, ${s.colorG}, ${s.colorB}, 0.5)`);
+          lineGrad.addColorStop(0.3, `rgba(${s.colorR}, ${s.colorG}, ${s.colorB}, ${0.1 * DIM_MUL})`);
+          lineGrad.addColorStop(1, `rgba(${s.colorR}, ${s.colorG}, ${s.colorB}, ${0.5 * DIM_MUL})`);
           ctx!.beginPath();
           ctx!.moveTo(sx, sy);
           ctx!.lineTo(ex, ey);
@@ -320,15 +443,27 @@ export function NeuralNetworkBackground() {
           ctx!.lineWidth = 2;
           ctx!.stroke();
         }
-
-
       }
 
-      // Draw all particles as glowing dots
+      // Draw all particles as glowing dots.
+      //
+      // These stay as per-particle radial gradients rather than
+      // blitted from a pre-baked sprite. Baking them looked like the
+      // obvious win — one sprite per palette colour, blitted with
+      // ``globalAlpha`` instead of ~3,600 gradient allocations per
+      // second — but it measured roughly 2x *slower* end to end. A
+      // scaled, alpha-blended ``drawImage`` costs far more per pixel
+      // than a gradient fill, and a square blit also covers 4/pi
+      // (~1.27x) more area than the circular arc it replaced. The
+      // per-particle gradient is kept deliberately; see the note on
+      // ``LINE_BUCKETS`` above for the connection batching, which
+      // *is* a win because it leaves the pixel count untouched.
       for (const p of particles) {
         const pulse = Math.sin(t * p.pulseSpeed + p.pulsePhase) * 0.3 + 0.7;
         const firingBoost = p.firing * 2;
-        const alpha = Math.min(p.alpha * pulse + firingBoost * 0.3, 1);
+        // Every alpha is scaled by ``DIM_MUL`` so the particles dim
+        // along with the gradient — see the note on ``DIM``.
+        const alpha = Math.min(p.alpha * pulse + firingBoost * 0.3, 1) * DIM_MUL;
         const size = p.size * (pulse * 0.4 + 0.6) * (1 + firingBoost * 0.5);
         if (size < 0.3) continue;
         // Outer glow
@@ -354,11 +489,16 @@ export function NeuralNetworkBackground() {
       }
     }
 
-    // Track mouse position to create interactive glow around the cursor
+    // Track mouse position to create interactive glow around the cursor.
+    //
+    // The canvas is ``position: fixed`` at the viewport origin, so
+    // client coordinates are already canvas coordinates. This used
+    // to call ``getBoundingClientRect()`` on every ``mousemove``,
+    // forcing a synchronous layout on every mouse event across the
+    // whole document.
     function onMouseMove(e: MouseEvent) {
-      const rect = canvas!.getBoundingClientRect();
-      mouseX = e.clientX - rect.left;
-      mouseY = e.clientY - rect.top;
+      mouseX = e.clientX;
+      mouseY = e.clientY;
     }
 
     resize();

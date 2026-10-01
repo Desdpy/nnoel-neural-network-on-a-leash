@@ -46,6 +46,16 @@ export function Chat() {
   const lastMoveRef = useRef({ x: 0, y: 0, time: 0 });
   const inertiaFrameRef = useRef<number | null>(null);
   const velocityStopTimerRef = useRef<number | null>(null);
+  // Cached on drag start. The inertia loop used to read
+  // ``offsetWidth`` / ``offsetHeight`` every frame to work out the
+  // travel bounds, which is a forced layout on every frame of the
+  // glide — and of every pointermove during the drag. The avatar
+  // is ``width: min(180px, 24vw)`` and never changes size while
+  // being dragged, so one read per gesture is enough.
+  const sizeRef = useRef<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
   const [position, setPosition] = useState<AvatarPosition | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -92,11 +102,14 @@ export function Chat() {
     const glideDuration = Math.min(1200, 250 + speed * 800);
     const startedAt = performance.now();
     let previousTime = startedAt;
+    // Travel bounds are fixed for the whole glide — see ``sizeRef``.
+    const { width, height } = sizeRef.current;
+    const maxLeft = Math.max(0, window.innerWidth - width);
+    const maxTop = Math.max(0, window.innerHeight - height);
 
     const step = (now: number) => {
       const positionNow = positionRef.current;
-      const anchor = anchorRef.current;
-      if (!positionNow || !anchor) {
+      if (!positionNow) {
         inertiaFrameRef.current = null;
         return;
       }
@@ -109,8 +122,6 @@ export function Chat() {
 
       const desiredLeft = positionNow.left + velocityX * elapsedMs;
       const desiredTop = positionNow.top + velocityY * elapsedMs;
-      const maxLeft = Math.max(0, window.innerWidth - anchor.offsetWidth);
-      const maxTop = Math.max(0, window.innerHeight - anchor.offsetHeight);
       const nextPosition = {
         left: clamp(desiredLeft, 0, maxLeft),
         top: clamp(desiredTop, 0, maxTop),
@@ -159,6 +170,7 @@ export function Chat() {
 
       const rect = anchor.getBoundingClientRect();
       const nextPosition = { left: rect.left, top: rect.top };
+      sizeRef.current = { width: rect.width, height: rect.height };
       dragRef.current = {
         ...nextPosition,
         pointerId: event.pointerId,
